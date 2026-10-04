@@ -6,7 +6,7 @@
 
 ## 三个渲染方案
 
-| | A · H5 + Headless Chromium | B · 微信开发者工具 + Automator | C · miniprogram-simulate |
+| | A · 网页版预览 | B · 开发者工具直出 | C · 轻量渲染（开发中） |
 |---|---|---|---|
 | 帧率 | ~1-3s/帧 | ~0.5-3s/帧 | —（v1 占位） |
 | 保真 | 高（真 Chromium） | **100%（模拟器直出）** | 中（组件级） |
@@ -19,7 +19,7 @@
 
 ```bash
 # 一次性（可选，仅方案 B 需要）
-cd /home/arabica/codes/claude_wechat_view && npm install
+cd <本仓库目录> && npm install
 
 # 方式一：本会话热重载开发（写入 dev-mods 后按提示 Enable）
 # 方式二：每个会话临时加载
@@ -34,6 +34,7 @@ claude --plugin-dir /home/arabica/codes/claude_wechat_view
 ```
 /wxmp              # 打开面板：检测 + 建议，选择方案（面板里热键 1/2/3）
 /wxmp h5           # 直达方案 A（devtools / simulate 同理）
+/wxmp refresh      # 手动刷一帧（面板点击/热键不可用时的命令候补）
 /wxmp ask          # 强制停在方案选择器
 ```
 
@@ -64,10 +65,9 @@ claude --plugin-dir /home/arabica/codes/claude_wechat_view
 types/index.d.ts             $.state 契约（screen / detection / active / remember）
 hooks/
   hooks.json                 指向唯一入口 register.tsx
-  register.tsx               所有事件钩子 + 全部接收 $ 的函数（引擎要求 $ 不出本文件顶层）
+  register.tsx               所有事件钩子 + atom 定义 + 全部接收 $ 的函数（$ 不出本文件顶层）
   sources.ts                 三个方案的静态介绍/状态文案（纯数据）
   lib.ts                     参数拼装 / JSON 解析（纯函数）
-  state.ts                   atom 定义
 bridges/                     纯 Node 脚本，$.process.run 拉起，stdout 回一行 JSON
   h5-bridge.mjs              A：fetch 探活 → chromium --headless --screenshot
   devtools-bridge.mjs        B：automator.connect / launch → miniProgram.screenshot
