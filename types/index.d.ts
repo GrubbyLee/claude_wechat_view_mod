@@ -1,7 +1,7 @@
 /**
  * wxmp-preview 的共享类型与 `$.state` 契约。
  *
- * 契约里的每个值对应 `hooks/state.ts` 里的一个 atom；
+ * 契约里的每个值对应 `hooks/register.tsx` 顶层声明的 atom；
  * 引擎按 `interface PluginState` 校验 `$.state` 的每次读写。
  */
 
