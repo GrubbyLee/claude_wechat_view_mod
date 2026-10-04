@@ -35,8 +35,9 @@ hooks/register.tsx           事件注册 + 全部接收 $ 的函数 + 两块屏
 hooks/sources.ts             三方案的静态介绍/状态文案（纯数据，无 $）
 hooks/lib.ts                 argv 拼装 / stdout JSON 解析 / 判定（纯函数，无 $）
 bridges/*.mjs                三个纯 Node 桥接脚本（进程外，$.process.run 拉起）
-tests/wxmp-preview.test.ts   UI 测试
-package.json                 方案 B 的依赖（miniprogram-automator）
+tests/wxmp-preview.test.ts   UI 测试（第三个是刷新管线全链路）
+tests/fixtures/native-demo/  方案 C 冒烟用的原生小程序夹具
+package.json                 方案 B/C 的桥接依赖（automator / simulate / jsdom）
 README.md                    使用文档；tsconfig.json 引擎铺类型后 tsc -p 用
 ```
 
@@ -47,7 +48,9 @@ README.md                    使用文档；tsconfig.json 引擎铺类型后 tsc
 - **约定：结束时在 stdout 打一行 JSON**（`{ ok, path?, ... }` / `{ ok: false, error }`），
   mod 端从后往前找第一个合法 JSON 行解析（`parseBridgeResult`）。加新桥必须守约。
 - 可单独手跑冒烟（无需 Claude Code）：
-  - `node bridges/simulate-bridge.mjs` → 占位 JSON
+  - `node bridges/simulate-bridge.mjs --project tests/fixtures/native-demo` → 渲染原生
+    演示页出真 PNG（组件化页面直渲；经典 Page() 自动转换；含 usingComponents 的
+    Page 页不支持，如实报错）
   - `node bridges/h5-bridge.mjs --url http://localhost:10086` → 无 dev server 时的引导文案
   - `node bridges/devtools-bridge.mjs --port 9420` → 连不上端口时的引导文案
     （依赖 `npm install` 装在仓库根的 node_modules）

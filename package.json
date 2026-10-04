@@ -1,8 +1,10 @@
 {
   "name": "wxmp-preview-bridges",
   "private": true,
-  "description": "wxmp-preview 的桥接依赖（只有方案 B 需要）",
+  "description": "wxmp-preview 的桥接依赖（方案 B/C 需要）",
   "devDependencies": {
-    "miniprogram-automator": "^0.10.0"
+    "jsdom": "^30.1.2",
+    "miniprogram-automator": "^0.10.0",
+    "miniprogram-simulate": "^1.6.2"
   }
 }

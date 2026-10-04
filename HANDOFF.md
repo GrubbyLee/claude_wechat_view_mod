@@ -12,13 +12,15 @@
 pane 里实时预览微信小程序 UI：打开时显示工作区检测 + 三个渲染方案的选择器卡片，
 选一个后变成像素帧预览，Claude 每编辑一次小程序文件自动防抖刷新。
 
-**现状**（2026-10-05 更新）：方案 A **端到端实测通过**——taro 4.3 测试项目
-（`/home/arabica/codes/taro-min-e2e`）→ dev:h5（10086）→ A 桥截图 → Ghostty
-pane 里渲染出帧。validate / test 全绿。期间修复 snap chromium 假成功坑、重写
-UI 文案为大白话、新增 `/wxmp refresh` 命令。方案 C 仍为诚实占位。
+**现状**（2026-10-05 夜更新）：方案 A **端到端全链路通过**（含编辑→自动刷新，
+真会话实测 + 管线测试锁定）；期间修复 snap chromium 假成功坑、tool_input
+幽灵字段（自动刷新 v1 从未生效的根因）、重写 UI 文案、新增 `/wxmp refresh`。
+**方案 C 渲染桥已实现**（miniprogram-simulate + jsdom → headless 浏览器截图，
+组件化页面直渲、经典 Page() 自动转换兜底，像素级验证过）。三方案里只剩
+B 因本机无 DevTools 无法实测。validate / test 全绿。
 
-**你接手后的第一件事**：按 §6 Roadmap 推进（下一个是方案 C 渲染桥）；
-taro 测试项目的用法见 §7。
+**你接手后的第一件事**：按 §6 Roadmap 推进（下一个是 CDP screencast 60fps）；
+taro 测试项目与 C 冒烟夹具的用法见 §7。
 
 ---
 
@@ -54,7 +56,7 @@ taro 测试项目的用法见 §7。
 | 测试 | ✅ 2/2 | `claude plugin test .` → 选择器↔预览屏切换 + 四 surface 控件存在性 |
 | 桥 A 冒烟 | ✅ | `node bridges/h5-bridge.mjs` → 无 dev server 时输出引导 JSON（fetch 探活路径工作） |
 | 桥 B 冒烟 | ✅ | `node bridges/devtools-bridge.mjs` → **miniprogram-automator 导入成功**，连不上 9420 时输出引导 JSON |
-| 桥 C 冒烟 | ✅ | 占位 JSON（按设计） |
+| 桥 C 冒烟 | ✅ | 渲染 tests/fixtures/native-demo 出真 PNG；经典 Page() 兜底与像素级验证均过（2026-10-05 夜） |
 | npm 依赖 | ✅ 已装 | 77 个包（miniprogram-automator 及其依赖树；若干 deprecation 警告，无害） |
 | 端到端实测 | ✅ 全链路（含自动刷新） | 2026-10-05 夜：PTY 驱动真交互会话，编辑 index.tsx 后 500ms 防抖 → 桥 → 新帧（6166→6514 字节） |
 
@@ -196,8 +198,11 @@ settings.json `pluginConfigs["wxmp-preview"]` 生效，改动热重载生效。
 
 ## 5. 已知限制（诚实清单）
 
-- **方案 C 是占位**：选 C 只会在面板里报「渲染桥尚未实现」。这是有意的（宁可诚实
-  占位也不写假装能跑的代码）。
+- **方案 C 的真实边界**（已实现，非占位）：wx.* API 是 simulate 的模拟实现；
+  组件化页面（js 用 Component()）完整渲染，经典 Page() 自动转换（初始数据可渲、
+  生命周期/页面方法不执行），**含 usingComponents 的 Page 页面不支持**（相对路径
+  会断，如实报错）；rpx 按 750 设计稿映射（2x 窗口 + 0.5 缩放），页面里混用的
+  真实 px 也会被等比缩小。
 - 帧率是「预览级」：单次截图 0.5-3s/帧，不是实时视频流。
 - 像素帧走 kitty graphics 协议：kitty/Ghostty 最佳；不支持的终端显示 alt 文案；
   VS Code 里必须在**集成终端**跑 claude（终端 surface 才有 Image 元素）。
@@ -221,7 +226,8 @@ settings.json `pluginConfigs["wxmp-preview"]` 生效，改动热重载生效。
 
 1. ~~端到端实测方案 A~~ ✅ 2026-10-05：全链路跑通（含编辑→自动刷新的真会话
    实测），snap 坑与 tool_input 幽灵字段双修复，文案重写，管线测试锁定。
-2. **方案 C 渲染桥**：miniprogram-simulate + headless 浏览器，按 AGENTS.md 的桥约定写。
+2. ~~方案 C 渲染桥~~ ✅ 2026-10-05 夜：simulate + jsdom 渲染 → headless 浏览器
+   2x/0.5 缩放截图；夹具 tests/fixtures/native-demo 可复现冒烟。
 3. **方案 A 升级 CDP screencast**：`Page.startScreencast` + WebSocket 常驻连接，
    60fps；需要把桥改成长命子进程（参考 `$.process.spawn` 的流式文档和
    "session.start 拉起、模块卸载即终止"的示例）。
@@ -255,6 +261,9 @@ webpack5；起服务：`cd /home/arabica/codes/taro-min-e2e && nohup npm run dev
 Claude 编辑 `index.tsx` 后自动出新帧；管线另有自动化测试锁定（tests 第三个）。
 注意 taro 项目的 `dev:h5` 需在跑（起法见上）；`index.tsx` 当前文案为
 「你好，微信小程序 v2」（e2e 测试改的，无需恢复）。
+
+方案 C 冒烟：`node bridges/simulate-bridge.mjs --project tests/fixtures/native-demo`
+（组件化页面直渲；经典 Page() 自动转换兜底；含 usingComponents 的 Page 页报错）。
 
 ---
 

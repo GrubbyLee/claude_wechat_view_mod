@@ -1,0 +1,12 @@
+<view class="container">
+  <view class="header">原生小程序演示</view>
+  <view class="card">
+    <text class="title">{{title}}</text>
+    <text class="desc">方案 C · simulate 渲染</text>
+  </view>
+  <view class="row">
+    <view class="box red"></view>
+    <view class="box green"></view>
+    <view class="box blue"></view>
+  </view>
+</view>

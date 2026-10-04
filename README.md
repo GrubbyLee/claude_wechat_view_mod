@@ -6,11 +6,11 @@
 
 ## 三个渲染方案
 
-| | A · 网页版预览 | B · 开发者工具直出 | C · 轻量渲染（开发中） |
+| | A · 网页版预览 | B · 开发者工具直出 | C · 轻量渲染 |
 |---|---|---|---|
-| 帧率 | ~1-3s/帧 | ~0.5-3s/帧 | —（v1 占位） |
-| 保真 | 高（真 Chromium） | **100%（模拟器直出）** | 中（组件级） |
-| 前提 | 项目能跑 `dev:h5`；本机有 Chromium | 本机可跑微信开发者工具；`npm i -D miniprogram-automator` | 无 |
+| 帧率 | ~1-3s/帧 | ~0.5-3s/帧 | ~1-3s/帧 |
+| 保真 | 高（真 Chromium） | **100%（模拟器直出）** | 中（组件级，wx.* 模拟） |
+| 前提 | 项目能跑 `dev:h5`；本机有 Chromium | 本机可跑微信开发者工具；`npm i -D miniprogram-automator` | 无（`npm i` 即用） |
 | 适用 | Taro / uni-app / mpx 项目 | 原生小程序（或任何想要 100% 保真的场景） | 没有 DevTools 时的轻量方案 |
 
 自动检测逻辑：`package.json` 里找 `@tarojs/*` / `@dcloudio/*` / `@mpxjs*` → 推荐 A；存在 `project.config.json` → 原生项目，找到 DevTools CLI 推荐 B，否则推荐 C。
@@ -71,7 +71,7 @@ hooks/
 bridges/                     纯 Node 脚本，$.process.run 拉起，stdout 回一行 JSON
   h5-bridge.mjs              A：fetch 探活 → chromium --headless --screenshot
   devtools-bridge.mjs        B：automator.connect / launch → miniProgram.screenshot
-  simulate-bridge.mjs        C：占位（v1）
+  simulate-bridge.mjs        C：simulate + jsdom 渲染 WXML/WXSS → headless 浏览器截图
 tests/wxmp-preview.test.ts   UI 测试（claude plugin test）
 ```
 
@@ -97,7 +97,7 @@ Mod 与 Claude Code 本体拥有相同的机器权限。本插件只执行：读
 
 ## Roadmap
 
-- [ ] 方案 C 渲染桥（miniprogram-simulate + headless 浏览器）
+- [x] 方案 C 渲染桥（miniprogram-simulate + jsdom + headless 浏览器）
 - [ ] 方案 A 升级为 CDP screencast（60fps）
 - [ ] 点击穿透：pane 里的指针事件 → automator 元素 rect 反查 → `element.tap()`
 - [ ] 常驻桥进程（session.start 拉起，`process.spawn` 流式收帧）

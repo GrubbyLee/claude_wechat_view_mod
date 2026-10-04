@@ -42,14 +42,15 @@ export const SOURCES: readonly SourceInfo[] = [
   {
     kind: 'simulate',
     hotkey: '3',
-    title: '方案 C · 轻量渲染（开发中）',
-    blurb: '不装任何工具的组件级渲染',
-    fps: '—',
-    fidelity: '中（组件级，微信 API 为模拟）',
-    requires: '无外部依赖（渲染桥尚未完成）',
+    title: '方案 C · 轻量渲染',
+    blurb: '不装任何工具，直接渲 WXML/WXSS',
+    fps: '约 1-3 秒/帧',
+    fidelity: '中（组件级渲染，wx.* 为模拟）',
+    requires: '无外部工具（依赖随插件 npm i 安装）',
     intro:
-      '在浏览器里直接渲染小程序组件，不需要开发服务器，也不需要开发者工具，最轻量；' +
-      '但整体保真一般。**当前为占位**：选择后只会提示渲染桥尚未实现。',
+      '用 miniprogram-simulate 在本地渲染 WXML/WXSS 并截图：不需要开发服务器，也不需要微信开发者工具。' +
+      '组件化页面（js 用 Component()）完整渲染；经典 Page() 写法自动转换，初始数据可渲、页面方法不执行。' +
+      'wx.* API 为模拟实现，与真机行为有差异。',
   },
 ]
 
@@ -78,7 +79,7 @@ export const sourceStatus = (kind: SourceKind, det: Detection): { text: string; 
       ? { text: `✅ DevTools CLI：${det.devtoolsCli}`, color: 'green' }
       : { text: '⚠️ 未检测到 DevTools CLI（Linux 社区版需在配置里指定 devtools-cli）', color: 'yellow' }
   }
-  return { text: 'ℹ️ 无外部依赖；v1 渲染桥开发中，仅作占位', color: 'cyan' }
+  return { text: 'ℹ️ 无外部依赖；经典 Page() 页面自动转换渲染（初始数据）', color: 'cyan' }
 }
 
 /** epoch ms → "HH:MM:SS" */

@@ -100,6 +100,14 @@ const refresh = async ($: EngineInterface, cfg: BridgeConfig): Promise<void> => 
     $.ui.status(`wxmp · ${cur.kind}：刷新中…`)
 
     const argv = ['node', bridgeScript(cur.kind, $.plugin.root), ...bridgeArgs(cur.kind, cfg)]
+    if (cur.kind === 'simulate') {
+      // simulate 桥按项目根找 app.json；显式传 --project，不赌 process.run 的 cwd
+      try {
+        argv.push('--project', await $.session.cwd())
+      } catch {
+        // 拿不到 cwd 就让桥用 process.cwd() 默认值
+      }
+    }
     const res = await $.process.run(argv, { timeoutMs: 90000 })
     const payload = parseBridgeResult(res.stdout)
 
