@@ -498,24 +498,27 @@ export const register: Register = (on, options) => {
     }
   })
 
+  // tool.call 事件的工具参数平铺在事件顶层（没有 tool_input 包装字段），
+  // Edit/Write/MultiEdit 都带 file_path；NotebookEdit 没有（.ipynb 也不是
+  // 小程序文件，走到 maybeSchedule 里自然不匹配）
   on('tool.call', { tool: 'Edit' }, async ($, e, next) => {
     const ran = await next(e)
-    maybeSchedule($, e.tool_input, autoRefresh, cfg)
+    maybeSchedule($, e, autoRefresh, cfg)
     return ran
   })
   on('tool.call', { tool: 'Write' }, async ($, e, next) => {
     const ran = await next(e)
-    maybeSchedule($, e.tool_input, autoRefresh, cfg)
+    maybeSchedule($, e, autoRefresh, cfg)
     return ran
   })
   on('tool.call', { tool: 'MultiEdit' }, async ($, e, next) => {
     const ran = await next(e)
-    maybeSchedule($, e.tool_input, autoRefresh, cfg)
+    maybeSchedule($, e, autoRefresh, cfg)
     return ran
   })
   on('tool.call', { tool: 'NotebookEdit' }, async ($, e, next) => {
     const ran = await next(e)
-    maybeSchedule($, e.tool_input, autoRefresh, cfg)
+    maybeSchedule($, e, autoRefresh, cfg)
     return ran
   })
 

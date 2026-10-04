@@ -17,8 +17,8 @@ pane 里实时预览微信小程序 UI：打开时显示工作区检测 + 三个
 pane 里渲染出帧。validate / test 全绿。期间修复 snap chromium 假成功坑、重写
 UI 文案为大白话、新增 `/wxmp refresh` 命令。方案 C 仍为诚实占位。
 
-**你接手后的第一件事**：验证最后一环——编辑文件后 pane 自动刷新（见 §7）；
-之后按 §6 Roadmap 推进（下一个是方案 C 渲染桥）。
+**你接手后的第一件事**：按 §6 Roadmap 推进（下一个是方案 C 渲染桥）；
+taro 测试项目的用法见 §7。
 
 ---
 
@@ -56,7 +56,7 @@ UI 文案为大白话、新增 `/wxmp refresh` 命令。方案 C 仍为诚实占
 | 桥 B 冒烟 | ✅ | `node bridges/devtools-bridge.mjs` → **miniprogram-automator 导入成功**，连不上 9420 时输出引导 JSON |
 | 桥 C 冒烟 | ✅ | 占位 JSON（按设计） |
 | npm 依赖 | ✅ 已装 | 77 个包（miniprogram-automator 及其依赖树；若干 deprecation 警告，无害） |
-| 端到端实测 | ✅ 方案 A 全链路 | 2026-10-05：taro-min-e2e → dev:h5 → 桥 → Ghostty pane 出帧；仅「编辑后自动刷新」未亲眼验证 |
+| 端到端实测 | ✅ 全链路（含自动刷新） | 2026-10-05 夜：PTY 驱动真交互会话，编辑 index.tsx 后 500ms 防抖 → 桥 → 新帧（6166→6514 字节） |
 
 **环境事实**（都在本机验证过）：
 
@@ -183,6 +183,14 @@ settings.json `pluginConfigs["wxmp-preview"]` 生效，改动热重载生效。
 9. **glm-5.3 分类器间歇超时**（auto 模式下所有 Bash/Write 被卡，会话内无法
    根治）：应对 = 用户 `!` 前缀代跑。白名单 settings.local.json 对运行中会话
    不生效；插件给自己写权限配置会被分类器正确拦下，需用户明示确认。
+10. **tool_input 幽灵字段（v1 致命 bug，已修）**：tool.call 事件的工具参数平铺
+    在事件顶层（`e.file_path`），没有 `e.tool_input` 包装——v1 的 maybeSchedule
+    读 `e.tool_input` 永远拿到空路径，**自动刷新从未生效过**。用户 01:11 编辑
+    测试无反应即此因（不是 snap 坑；snap 只影响手动刷新路径，两个 bug 分踞
+    两条路径）。教训：管线逻辑必须配自动化测试，人眼验证会漏掉「从未触发」
+    类 bug。另外 `-p`/`--resume` 会话的插件 `$.state` 不随 resume 恢复、
+    进程退出会掐掉防抖定时器——无头模式测不了时序逻辑，用测试环境的
+    mock clock（见 tests 第三个测试）。
 
 ---
 
@@ -211,8 +219,8 @@ settings.json `pluginConfigs["wxmp-preview"]` 生效，改动热重载生效。
 
 ## 6. Roadmap（按优先级）
 
-1. ~~端到端实测方案 A~~ ✅ 2026-10-05：taro-min-e2e 全链路跑通，snap 坑修复，
-   文案重写；仅剩「编辑文件 → 自动刷新」待亲眼验证（§7 有步骤）。
+1. ~~端到端实测方案 A~~ ✅ 2026-10-05：全链路跑通（含编辑→自动刷新的真会话
+   实测），snap 坑与 tool_input 幽灵字段双修复，文案重写，管线测试锁定。
 2. **方案 C 渲染桥**：miniprogram-simulate + headless 浏览器，按 AGENTS.md 的桥约定写。
 3. **方案 A 升级 CDP screencast**：`Page.startScreencast` + WebSocket 常驻连接，
    60fps；需要把桥改成长命子进程（参考 `$.process.spawn` 的流式文档和
@@ -243,8 +251,10 @@ webpack5；起服务：`cd /home/arabica/codes/taro-min-e2e && nohup npm run dev
 `claude --plugin-dir /home/arabica/codes/claude_wechat_view` → `/wxmp`（自动
 认出 taro 项目、推荐方案 A）→ `/wxmp refresh` 手动刷帧。
 
-**待验证的最后一环**：在那个会话里让 Claude 改 `src/pages/index/index.tsx`
-的文案，盯 pane 是否 ~1-4 秒自动出新帧（tool.call → 500ms 防抖 → 桥 → blit）。
+**已全部验证**（2026-10-05 夜）：PTY 驱动的真交互会话里 `/wxmp h5` 出首帧、
+Claude 编辑 `index.tsx` 后自动出新帧；管线另有自动化测试锁定（tests 第三个）。
+注意 taro 项目的 `dev:h5` 需在跑（起法见上）；`index.tsx` 当前文案为
+「你好，微信小程序 v2」（e2e 测试改的，无需恢复）。
 
 ---
 

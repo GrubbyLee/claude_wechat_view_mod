@@ -75,6 +75,11 @@ claude --plugin-dir .             # 新会话里临时加载，输入 /wxmp 体�
   字段**（pane 的 id，必须和 render hook 的 matcher 一致），放 props 里 matcher 匹配不上。
 - 会触碰 `$.clock`/`$.store` 的交互，先 `mock.clock(on)` / `mock.store(on)` 装好插件
   之下的世界，否则报 "no implementation for clock.now"。
+- 伪造进程/工具调用：`on('process.run', async () => ({ value: { exitCode, stdout, ... } }))`
+  ——call 类事件回 **`{ value }`** 包装；给 `$.tool.call` 垫底用
+  `on('tool.call', async () => ({ result: { result, text } }))`——回 **`{ result }`**
+  （协议不同，报错信息会直说缺哪个）。`mock.clock(on)` 的返回值带 `advance(ms)`，
+  用来推进防抖定时器（tests 第三个测试是完整范例）。
 - 同一断言体循环跑多个 surface（有按钮交互的 `['terminal','desktop']`；
   纯存在性断言可加 `vscode`/`mobile`）。
 - press 之后立即断言即可——act 会等链、onPress 和未 await 的活儿都 settle；
