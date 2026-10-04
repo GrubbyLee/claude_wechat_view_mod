@@ -1,0 +1,47 @@
+{
+  "name": "wxmp-preview",
+  "version": "0.1.0",
+  "description": "微信小程序 UI 实时预览：右侧 pane 选择渲染方案（H5 / 开发者工具 / simulate）并显示像素帧",
+  "author": { "name": "arabica" },
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "defaultSource": {
+      "type": "string",
+      "default": "auto",
+      "options": ["auto", "h5", "devtools", "simulate"],
+      "title": "默认渲染方案",
+      "description": "auto = 工作区检测 + 记住的选择；也可固定 h5 / devtools / simulate"
+    },
+    "h5Url": {
+      "type": "string",
+      "default": "http://localhost:10086",
+      "title": "H5 dev server 地址",
+      "description": "方案 A 的 H5 dev server 地址（taro/uni-app 的 dev:h5）"
+    },
+    "browser": {
+      "type": "string",
+      "default": "",
+      "title": "Chromium 路径",
+      "description": "Chromium/Chrome 可执行文件路径（留空自动探测）"
+    },
+    "devtoolsCli": {
+      "type": "string",
+      "default": "",
+      "title": "DevTools CLI 路径",
+      "description": "微信开发者工具 CLI 路径（Linux 社区版需指定）"
+    },
+    "devtoolsPort": {
+      "type": "string",
+      "default": "9420",
+      "title": "DevTools 自动化端口",
+      "description": "微信开发者工具自动化端口（miniprogram-automator 连接用）"
+    },
+    "autoRefresh": {
+      "type": "string",
+      "default": "on",
+      "options": ["on", "off"],
+      "title": "自动刷新",
+      "description": "Claude 编辑小程序相关文件后自动刷新预览"
+    }
+  }
+}

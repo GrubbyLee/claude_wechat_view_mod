@@ -1,0 +1,8 @@
+{
+  "name": "wxmp-preview-bridges",
+  "private": true,
+  "description": "wxmp-preview 的桥接依赖（只有方案 B 需要）",
+  "devDependencies": {
+    "miniprogram-automator": "^0.10.0"
+  }
+}
