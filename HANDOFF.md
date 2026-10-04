@@ -197,6 +197,10 @@ settings.json `pluginConfigs["wxmp-preview"]` 生效，改动热重载生效。
 - `h5Url` 默认值只对 taro 成立，uni-app 项目要改配置。
 - Ghostty 里鼠标点击 pane 按钮未生效（根因未查，疑似 mouse-reporting 交互）；
   已有 `/wxmp refresh` 命令和 ctrl+x→tab 键盘路径候补。
+- pane 停靠位置插件控制不了（引擎按「全屏渲染模式 + 终端 ≥110 列」决定 dock 右侧，
+  否则 inline 在 prompt 上方；anthropics/claude-code#99404 是开放的功能请求）。
+  插件端已在 inline 时显示指路文案；用户侧自查：`/tui` 看模式、终端拉宽 ≥110 列、
+  确认没设 `CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1`。
 - `tsc -p` 全量类型检查没跑过（validate 已按引擎方式编译过模块；引擎铺的
   `.claude-plugin/types` 在旧会话的 dev-mods 副本里，源目录没有）。想跑的话在
   仓库根建一个 tsconfig（include: hooks/types/tests，types 指向引擎声明文件——

@@ -37,6 +37,7 @@ hooks/lib.ts                 argv 拼装 / stdout JSON 解析 / 判定（纯函�
 bridges/*.mjs                三个纯 Node 桥接脚本（进程外，$.process.run 拉起）
 tests/wxmp-preview.test.ts   UI 测试
 package.json                 方案 B 的依赖（miniprogram-automator）
+README.md                    使用文档；tsconfig.json 引擎铺类型后 tsc -p 用
 ```
 
 ## 桥接脚本约定（bridges/）

@@ -26,7 +26,7 @@ import type { ActiveSource, Detection, ProjectKind, SourceKind } from '../types'
 /** ui.render 收到的 Pane 实例里，本插件实际读的字段 */
 interface PaneRender {
   surface: 'terminal' | 'desktop' | 'vscode' | 'mobile'
-  props: { bodyColumns?: number }
+  props: { bodyColumns?: number; placement?: 'dock' | 'inline' }
   viewport?: { rows?: number }
 }
 
@@ -409,6 +409,10 @@ const drawPreview = async ($: EngineInterface, e: PaneRender, cfg: BridgeConfig)
       </Box>
       {e.surface === 'terminal' && (
         <Text dimColor wrap="truncate">点 [刷新] 或 /wxmp refresh；ctrl+x→tab 后按 r/s</Text>
+      )}
+      {/* placement 引擎决定（全屏 + ≥110 列才 dock 右侧）；inline 时给用户指路 */}
+      {e.surface === 'terminal' && e.props.placement === 'inline' && (
+        <Text dimColor wrap="truncate">终端拉宽到 110 列以上（全屏模式）时，预览会停靠到对话右侧</Text>
       )}
       {act !== null && act.lastError !== null && (
         <Text color="red" wrap="wrap">✗ {act.lastError}</Text>
