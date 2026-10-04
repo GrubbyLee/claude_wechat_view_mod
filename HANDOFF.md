@@ -193,6 +193,11 @@ settings.json `pluginConfigs["wxmp-preview"]` 生效，改动热重载生效。
     类 bug。另外 `-p`/`--resume` 会话的插件 `$.state` 不随 resume 恢复、
     进程退出会掐掉防抖定时器——无头模式测不了时序逻辑，用测试环境的
     mock clock（见 tests 第三个测试）。
+11. **无头 e2e 的正确姿势（真交互链路验证）**：`claude -p` 测不了时序（见 10），
+    用 `script -qec 'claude --plugin-dir …' /dev/null` 起 PTY 真会话，喂输入要
+    **逐词慢打**（长串一次 printf 会被 TUI 刷帧吞掉、Enter 丢失），并
+    `env -u CLAUDE_CODE_*` 剥子会话标记；判据看 /tmp 里桥 PNG 的时间戳与字节数
+    变化（内容变了字节数就变）。
 
 ---
 
