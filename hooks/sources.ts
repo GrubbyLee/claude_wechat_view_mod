@@ -36,8 +36,8 @@ export const SOURCES: readonly SourceInfo[] = [
     requires: '本机可运行微信开发者工具',
     intro:
       '连接微信开发者工具，直接截取模拟器画面——和你手动切到工具窗口看到的完全一致，' +
-      'wx.* 行为也与真机一致。首次使用需在工具里打开「设置 → 安全设置 → 服务端口」。' +
-      'Linux 没有官方版工具，本机暂不可用。',
+      'wx.* 行为也与真机一致。首次使用需在工具里打开「设置 → 安全设置 → 服务端口」，' +
+      '并用工具打开本项目。Linux 无官方版，社区移植版（如 msojocs wechat-devtools-linux）可用。',
   },
   {
     kind: 'simulate',

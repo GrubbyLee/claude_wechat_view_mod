@@ -127,6 +127,11 @@ const refresh = async ($: EngineInterface, cfg: BridgeConfig): Promise<void> => 
     $.ui.status(`wxmp · ${cur.kind}：刷新中…`)
 
     const argv = ['node', bridgeScript(cur.kind, $.plugin.root), ...bridgeArgs(cur.kind, cfg)]
+    if (cur.kind === 'devtools' && cfg.devtoolsCli === '') {
+      // 用户没配 CLI 时，把 detect 在 PATH 里找到的传给桥（connect 失败时的 launch 兜底）
+      const det = await read($, detection)
+      if (det !== null && det.devtoolsCli !== null) argv.push('--cli', det.devtoolsCli)
+    }
     if (cur.kind === 'simulate') {
       // simulate 桥按项目根找 app.json；显式传 --project，不赌 process.run 的 cwd
       try {
@@ -360,9 +365,22 @@ const detect = async ($: EngineInterface, cfg: BridgeConfig): Promise<Detection>
     hasProjectConfig = false
   }
 
+  // HBuilderX 的 uni-app 工程：没有标准 package.json 依赖，靠 manifest+pages 识别
+  let hasUniManifest = false
+  try {
+    hasUniManifest = (await $.fs.exists('manifest.json')) && (await $.fs.exists('pages.json'))
+  } catch {
+    hasUniManifest = false
+  }
+
   if (pkg === null) {
-    project = hasProjectConfig ? 'native' : 'none'
-    evidence.push(hasProjectConfig ? '存在 project.config.json → 原生小程序' : '未发现 package.json / project.config.json')
+    if (hasUniManifest) {
+      project = 'uni'
+      evidence.push('manifest.json + pages.json → uni-app（HBuilderX 工程）')
+    } else {
+      project = hasProjectConfig ? 'native' : 'none'
+      evidence.push(hasProjectConfig ? '存在 project.config.json → 原生小程序' : '未发现 package.json / project.config.json')
+    }
   } else {
     evidence.push(`package.json：${deps.size} 个依赖，${scripts.length} 个脚本`)
     const hasDep = (prefix: string): boolean => [...deps].some(d => d.startsWith(prefix))
@@ -375,6 +393,9 @@ const detect = async ($: EngineInterface, cfg: BridgeConfig): Promise<Detection>
     } else if (hasDep('@mpxjs/') || deps.has('mpx')) {
       project = 'mpx'
       evidence.push('依赖 mpx → mpx 项目')
+    } else if (hasUniManifest) {
+      project = 'uni'
+      evidence.push('manifest.json + pages.json → uni-app（HBuilderX 工程）')
     } else if (hasProjectConfig) {
       project = 'native'
       evidence.push('存在 project.config.json → 原生小程序')
@@ -416,8 +437,11 @@ const detect = async ($: EngineInterface, cfg: BridgeConfig): Promise<Detection>
   else if (cfg.devtoolsCli !== '') evidence.push(`配置的 devtoolsCli 不存在：${cfg.devtoolsCli}`)
 
   let recommend: SourceKind | 'none' = 'none'
-  if (project === 'taro' || project === 'uni' || project === 'mpx') {
+  if (project === 'taro' || project === 'mpx') {
     recommend = 'h5'
+  } else if (project === 'uni') {
+    // CLI 工程（有 dev:h5）走 A；HBuilderX 工程不跑 npm 链路，天然贴近 DevTools
+    recommend = h5Script !== null ? 'h5' : devtoolsCli !== null ? 'devtools' : 'h5'
   } else if (project === 'native') {
     recommend = devtoolsCli !== null ? 'devtools' : 'simulate'
   } else if (project === 'unknown' && devtoolsCli !== null) {

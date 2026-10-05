@@ -66,9 +66,12 @@ B 因本机无 DevTools 无法实测。validate / test 全绿（5 个测试）�
 - Linux（Kernel 7.0），Node v22.22.3（nvm）。
 - 浏览器：`/snap/bin/chromium`、`/usr/bin/google-chrome`、`/usr/bin/google-chrome-stable`
   都在——**方案 A 随时可用**（只要有个跑着的 H5 dev server）。
-- **没有微信开发者工具**（`which wechat-devtools-cli/wechat-devtools` 均空）——方案 B
-  在本机只能走到「连接失败 + 引导文案」，出画面需要先装 DevTools（Linux 无官方版，
-  需社区移植或 wine）。
+- **微信开发者工具已安装**（2026-10-05 用户装的 msojocs 社区 Linux 移植版
+  2.01.2510290，`/opt/apps/io.github.msojocs.wechat-devtools-linux/`，CLI 在
+  `/usr/local/bin/wechat-devtools-cli`）——**方案 B 解锁可测**。注意：需在工具
+  「设置→安全设置→服务端口」开启自动化端口（9420），并用工具打开目标项目。
+  HBuilderX 的 uni-app 工程要在工具里打开的是编译产物目录
+  （unpackage/dist/dev/mp-weixin），不是源码根。
 - 本仓库**自己不是小程序项目**：`package.json` 存在但无框架依赖 → `detect()` 会判
   `unknown`、推荐 `none`、选择器显示「未识别出跨端框架」——这是预期行为，不是 bug。
 - Claude Code 版本 2.1.289（npm 全局，二进制 `bin/claude.exe`）。
