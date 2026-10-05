@@ -691,7 +691,7 @@ export const register: Register = (on, options) => {
     // /wxmp refresh：不动当前选择，只刷一帧（面板点击/热键不可用时的命令候补）
     if (arg === 'refresh') {
       const act = await read($, active)
-      await $.ui.open({ id: PANE, title: '小程序预览', columns: 56 })
+      await $.ui.open({ id: PANE, title: '小程序预览', columns: 56, rows: 40 })
       if (act === null) return { text: 'wxmp：尚未选择方案——先用 /wxmp 挑一个' }
       void refresh($, cfg)
       return { text: `wxmp：刷新中（${sourceOf(act.kind).title}）` }
@@ -721,7 +721,7 @@ export const register: Register = (on, options) => {
 
     if (kind !== null) await choose($, kind, cfg)
     else await update($, screen, () => 'chooser')
-    await $.ui.open({ id: PANE, title: '小程序预览', columns: 56 })
+    await $.ui.open({ id: PANE, title: '小程序预览', columns: 56, rows: 40 })
     return {
       text:
         kind === null
