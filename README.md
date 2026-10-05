@@ -1,106 +1,144 @@
-# wxmp-preview · 微信小程序 UI 实时预览（Claude Code Mod）
+# wxmp-preview
 
-在 Claude Code 里用 **`/wxmp`** 打开右侧预览面板：先看到工作区自动检测和三个渲染方案的介绍卡片，选一个后面板变成**像素帧实时预览**——Claude 每编辑一次小程序文件，预览自动刷新。
+**Live-preview your WeChat Mini Program UI right inside Claude Code.** Type `/wxmp`, pick a renderer, and every file you edit shows up as pixels in a side pane — no more window-switching between your editor and the simulator.
 
-本项目是一个 [Claude Code function-hooks 插件](https://claudemods.ai)（Mod），目录本身即插件。
+> **微信小程序 UI 实时预览**：在 Claude Code 里 `/wxmp` 打开右侧面板，选一种渲染引擎，改完代码即刻看到画面——告别编辑器和模拟器之间的来回切换。
 
-## 三个渲染方案
+## 特性
+
+- 🎬 **三种渲染引擎**，按项目自动推荐、随时手动切换（见下表）
+- 🗂 **monorepo 感知**：小程序不在仓库根目录也能扫到（`apps/mobile`、`packages/*` 等常见布局）
+- 🚀 **dev server 自动拉起**：探活失败自动 `npm run dev:h5`（后台运行、幂等、日志落盘）
+- 🛡 **归属校验**：端口被别的项目占用时直接拒用，绝不显示别人的页面
+- ⚡ **实时直播模式**（`h5Live`）：CDP screencast 常驻，改代码即出帧
+- 🖱 **点击穿透**：直播模式下直接点面板画面，交互穿透到页面
+- 🔍 **纯本地**：不联网、不上传，所有渲染都在本机完成
+
+## 环境要求
+
+| 依赖 | 说明 |
+|---|---|
+| Claude Code ≥ 2.1.289 | 需要 function-hooks（Mods）机制 |
+| Node.js ≥ 22 | 桥接脚本使用原生 `WebSocket` / `fetch` |
+| Chromium / Chrome | 方案 A 需要；自动探测 PATH，snap 版有沙箱坑会自动绕开 |
+
+## 快速开始
+
+```bash
+git clone https://github.com/GrubbyLee/claude_wechat_view_mod.git
+cd claude_wechat_view_mod
+npm install        # 方案 B/C 的依赖（miniprogram-automator / simulate / jsdom）
+```
+
+**临时体验**（任意项目目录）：
+
+```bash
+claude --plugin-dir /path/to/claude_wechat_view_mod
+```
+
+**永久启用**（推荐）——在 `~/.claude/settings.json` 的 `env` 块加一行：
+
+```json
+{
+  "env": {
+    "CLAUDE_CODE_PLUGIN_DIRS": "/path/to/claude_wechat_view_mod"
+  }
+}
+```
+
+之后在任何小程序项目里：
+
+```
+/wxmp              # 打开面板：自动检测 + 推荐方案，热键 1/2/3 选择
+/wxmp h5           # 直达方案 A（devtools / simulate 同理）
+/wxmp refresh      # 手动刷一帧
+```
+
+> 像素画面走 kitty graphics 协议：kitty / Ghostty 原生支持；其他终端显示占位说明。建议配合 `"tui": "fullscreen"`（Claude Code 全屏布局）使用，面板会停靠在对话右侧。
+
+## 三种渲染引擎
 
 | | A · 网页版预览 | B · 开发者工具直出 | C · 轻量渲染 |
 |---|---|---|---|
-| 帧率 | ~1-3s/帧 | ~0.5-3s/帧 | ~1-3s/帧 |
-| 保真 | 高（真 Chromium） | **100%（模拟器直出）** | 中（组件级，wx.* 模拟） |
-| 前提 | 有 `dev:h5` 脚本（未运行会**自动拉起**）；本机有 Chromium | 微信开发者工具以 `--remote-debugging-port=9333` 启动并打开项目 | 无（`npm i` 即用） |
-| 适用 | Taro / uni-app / mpx 项目 | 原生小程序（或任何想要 100% 保真的场景） | 没有 DevTools 时的轻量方案 |
+| 原理 | H5 dev server + headless Chromium 截图 | CDP 直抓 DevTools 模拟器 webview | miniprogram-simulate + jsdom 渲染 |
+| 帧率 | ~1-3s/帧（直播模式即改即出） | ~0.5-3s/帧 | ~1-3s/帧 |
+| 保真 | 高（真浏览器；wx.* 为 H5 行为） | **100%（模拟器直出）** | 中（组件级，wx.* 模拟） |
+| 前提 | 有 `dev:h5` 脚本（未运行会自动拉起） | DevTools 以 `--remote-debugging-port=9333` 启动 | 无（`npm i` 即用） |
+| 适用 | Taro / uni-app CLI 工程 | 原生小程序、HBuilderX / mp-weixin 工作流 | 无 DevTools 环境的快速预览 |
 
-自动检测逻辑：根目录 `package.json` 找 `@tarojs/*` / `@dcloudio/*` / `@mpxjs*`，或 `manifest.json+pages.json`（HBuilderX）；根目录不是小程序工程时**自动扫子目录**（monorepo：`apps/*`、`packages/*` 等）→ 有 `dev:h5` 推荐 A，纯 mp-weixin 工作流推荐 B，原生项目找到 DevTools CLI 推荐 B 否则 C。
+## 自动检测
 
-## 安装
+打开面板时自动扫描工作区：
 
-```bash
-# 一次性（可选，仅方案 B 需要）
-cd <本仓库目录> && npm install
+1. 根目录 `package.json` 找 `@tarojs/*` / `@dcloudio/*` / `@mpxjs*`，或 `manifest.json + pages.json`（HBuilderX）
+2. 根目录不是小程序工程时**扫子目录**（一层全部 + `apps/*` / `packages/*`）
+3. 推荐规则：有 `dev:h5` → **A**；纯 mp-weixin / HBuilderX 工作流 → **B**；原生无 DevTools CLI → **C**
 
-# 方式一：本会话热重载开发（写入 dev-mods 后按提示 Enable）
-# 方式二：每个会话临时加载
-claude --plugin-dir /home/arabica/codes/claude_wechat_view
-
-# 方式三：长期启用（settings.json 的 env）
-#   CLAUDE_CODE_PLUGIN_DIRS=/home/arabica/codes/claude_wechat_view
-```
-
-## 使用
-
-```
-/wxmp              # 打开面板：检测 + 建议，选择方案（面板里热键 1/2/3）
-/wxmp h5           # 直达方案 A（devtools / simulate 同理）
-/wxmp refresh      # 手动刷一帧（面板点击/热键不可用时的命令候补）
-/wxmp ask          # 强制停在方案选择器
-```
-
-面板操作：
-
-- 选择器：每张卡片有介绍与环境状态（✅/⚠️），「使用此方案」；「重新检测」；「记住选择」按项目记住
-- 预览屏：`[刷新]`（热键 r）、`[切换方案]`（热键 s）切换方案随时回选择器
-- Claude 编辑 `.wxml/.wxss/.json/.ts/...` 后自动防抖刷新（可用 `autoRefresh` 配置关闭）
-
-> 像素帧通过 kitty graphics protocol 绘制，支持 kitty / Ghostty；其他终端
-> 会显示 alt 文案。VS Code 里请在**集成终端**中运行 claude（终端 surface）。
-
-## 配置（/config 菜单或 settings.json 的 pluginConfigs）
+## 配置（`/config` 菜单或 settings.json `pluginConfigs`）
 
 | 字段 | 默认 | 说明 |
 |---|---|---|
 | `defaultSource` | `auto` | `auto` / `h5` / `devtools` / `simulate` |
-| `h5Url` | `http://localhost:10086` | 方案 A 的 dev server 地址 |
-| `browser` | 空 | Chromium 路径（留空自动探测 PATH） |
-| `h5Live` | `off` | `on` = 方案 A 实时直播（CDP screencast，改代码即出帧，画面可点击） |
-| `devtoolsCli` | 空 | 开发者工具 CLI 路径（Linux 社区版需指定） |
-| `devtoolsCdpPort` | `9333` | 工具需以 `--remote-debugging-port=此值` 启动（CDP 截图通道） |
-| `autoRefresh` | `on` | 编辑后自动刷新（直播模式下自动让位） |
+| `h5Url` | `http://localhost:10086` | 方案 A 的 dev server 地址（不通时自动探测 5173/8080/3000） |
+| `browser` | 空 | Chromium 路径（留空自动探测） |
+| `h5Live` | `off` | `on` = 方案 A 实时直播 + 画面可点击 |
+| `devtoolsCli` | 空 | DevTools CLI 路径 |
+| `devtoolsCdpPort` | `9333` | 工具需以 `--remote-debugging-port=此值` 启动 |
+| `autoRefresh` | `on` | 编辑小程序文件后自动刷新（直播模式自动让位） |
 
-## 架构
+## 方案 B 的准备（微信开发者工具）
+
+1. 装工具：官方版（macOS / Windows），Linux 用社区移植版（如 [msojocs/wechat-devtools-linux](https://github.com/msojocs/wechat-devtools-linux)）
+2. **以调试参数启动**（一次性）：
+
+   ```bash
+   wechat-devtools-cli quit
+   wechat-devtools --remote-debugging-port=9333
+   ```
+
+3. 在工具里打开你的项目——uni-app 等编译型框架打开**编译产物目录**（如 `apps/mobile/dist/build/mp-weixin`，插件检测时会自动定位并提示）
+
+> 为什么不走官方 automator 截图：社区 Linux 移植版的 `App.captureScreenshot` 指令无响应（协议层实测），CDP 直抓 `__pageframe__` webview 是稳定通道。
+
+## 工作原理
 
 ```
-.claude-plugin/plugin.json   清单 + userConfig
-types/index.d.ts             $.state 契约（screen / detection / active / remember）
-hooks/
-  hooks.json                 指向唯一入口 register.tsx
-  register.tsx               所有事件钩子 + atom 定义 + 全部接收 $ 的函数（$ 不出本文件顶层）
-  sources.ts                 三个方案的静态介绍/状态文案（纯数据）
-  lib.ts                     参数拼装 / JSON 解析（纯函数）
-bridges/                     纯 Node 脚本，$.process.run 拉起，stdout 回一行 JSON
-  h5-bridge.mjs              A：fetch 探活 → chromium --headless --screenshot
-  live-bridge.mjs            A 实时（h5Live on）：CDP screencast 常驻守护，流式吐帧
-  devtools-bridge.mjs        B：automator.connect / launch → miniProgram.screenshot
-  simulate-bridge.mjs        C：simulate + jsdom 渲染 WXML/WXSS → headless 浏览器截图
-tests/wxmp-preview.test.ts   UI 测试（claude plugin test）
+Claude 编辑小程序文件
+  → tool.call 钩子 → 500ms 防抖
+  → $.process.run 拉起桥接脚本（bridges/，纯 Node，stdout 回一行 JSON）
+  → 解析 → $.ui.blit 帧级换图（免渲染直通）+ $.state 兜底重绘
 ```
 
-刷新管线：`tool.call`(Edit/Write/…) → 防抖 500ms → `$.process.run(node bridge.mjs …)`
-→ 解析 stdout JSON → `$.ui.blit`（keyed Image 换帧）+ `$.state` 更新（重绘兜底）。
+| 桥 | 职责 |
+|---|---|
+| `h5-bridge.mjs` | 探活（含归属校验）→ 自动拉起 dev server → chromium 截图 |
+| `live-bridge.mjs` | 常驻守护：CDP screencast 流式吐帧 + localhost 控制口（点击穿透） |
+| `devtools-bridge.mjs` | CLI 定向打开项目 → CDP attach 模拟器 webview → 截图 |
+| `simulate-bridge.mjs` | jsdom 里跑 miniprogram-simulate 渲染 WXML/WXSS → 浏览器截图 |
 
-## 开发与验证
+## 开发与测试
 
 ```bash
-claude plugin validate /home/arabica/codes/claude_wechat_view
-claude plugin test /home/arabica/codes/claude_wechat_view
+claude plugin validate .    # 引擎规则静态检查
+claude plugin test .        # 5 个测试（含刷新管线/直播/点击穿透全链路）
 ```
 
-调试：`claude --debug` 里看 `wxmp-preview:` 前缀的拒绝/失败行；热重载会话里
-transcript 有一行 dim 提示。桥接脚本可以单独手跑（stdout 就是 JSON）。
+贡献约定见 `AGENTS.md`，项目状态与踩坑史见 `HANDOFF.md`。
 
-## 安全提示
+## 已知限制
 
-Mod 与 Claude Code 本体拥有相同的机器权限。本插件只执行：读项目文件、
-`which` 探测、`node bridges/*.mjs`（其中 devtools 桥会调用
-`miniprogram-automator`）。**不要安装来路不明的第三方 mod**；本插件也
-建议只在自己机器上使用，对外分发前先审计。
+- 直播模式同机同一时刻一个实例（帧文件与 pidfile 固定在 `/tmp/wxmp-live-*`）
+- 方案 B 多项目窗口时抓第一个模拟器（已做 CLI 定向打开缓解）
+- 方案 C：组件化页面直渲，经典 `Page()` 自动转换（初始数据可渲），含 `usingComponents` 的 Page 页不支持
+- 像素帧需 kitty graphics 终端（kitty / Ghostty）；VS Code 请在集成终端运行 claude
 
 ## Roadmap
 
-- [x] 方案 C 渲染桥（miniprogram-simulate + jsdom + headless 浏览器）
-- [x] 方案 A 升级为 CDP screencast（h5Live 配置开启；screencast 变化才出帧，上限 15fps 可调）
-- [x] 点击穿透（A·直播）：Client 捕获层 → 守护 `/click` → CDP Input.dispatchMouseEvent；
-  B·automator 通道待 DevTools 环境实测
-- [x] 常驻桥进程（live-bridge：`$.process.spawn` 流式收帧 + pidfile 孤儿回收）
+- [x] 方案 A 端到端（自动刷新 + dev server 自动拉起 + 归属校验）
+- [x] 方案 B CDP 直抓（Linux 社区版实测）
+- [x] 方案 C simulate 渲染
+- [x] CDP screencast 实时直播（改代码即出帧）
+- [x] 点击穿透（A·直播通道：面板点击 → 页面交互）
+- [x] monorepo 工作区扫描
+- [ ] 点击穿透 B / C 通道（automator tap / simulate dispatch）
+- [ ] 多直播实例与远程工作区
