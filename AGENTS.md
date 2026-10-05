@@ -32,9 +32,10 @@
 types/index.d.ts             $.state 契约（PluginState 的 'wxmp-preview' 键）
 hooks/hooks.json             modules: ["./register.tsx"]（唯一入口）
 hooks/register.tsx           事件注册 + 全部接收 $ 的函数 + 两块屏的 JSX（选择器/预览屏）
+hooks/live-client.tsx        Client 捕获层（直播画面点击穿透；引擎加载的 surface 模块，无 $）
 hooks/sources.ts             三方案的静态介绍/状态文案（纯数据，无 $）
 hooks/lib.ts                 argv 拼装 / stdout JSON 解析 / 判定（纯函数，无 $）
-bridges/*.mjs                三个纯 Node 桥接脚本（进程外，$.process.run 拉起）
+bridges/*.mjs                四个纯 Node 桥接脚本（h5/live/devtools/simulate）
 tests/wxmp-preview.test.ts   UI 测试（第三个是刷新管线全链路）
 tests/fixtures/native-demo/  方案 C 冒烟用的原生小程序夹具
 package.json                 方案 B/C 的桥接依赖（automator / simulate / jsdom）
@@ -54,8 +55,9 @@ README.md                    使用文档；tsconfig.json 引擎铺类型后 tsc
   - `node bridges/h5-bridge.mjs --url http://localhost:10086` → 无 dev server 时的引导文案
   - `node bridges/devtools-bridge.mjs --port 9420` → 连不上端口时的引导文案
   - `node bridges/live-bridge.mjs --url http://localhost:10086 --out /tmp/live.png`
-    → 直播守护（常驻，stdout 流式吐 started/frame 行；需 dev server 在跑，
-    Ctrl-C 带走 chromium）
+    → 直播守护（常驻，stdout 流式吐 started/frame 行；控制口随 started 事件
+    上报端口，`curl -X POST :端口/click -d '{"x":375,"y":100}'` 穿透点击；
+    需 dev server 在跑，Ctrl-C 带走 chromium）
   （以上依赖 `npm install` 装在仓库根的 node_modules）
 
 ## 命令

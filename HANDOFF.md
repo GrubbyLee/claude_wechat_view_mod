@@ -12,14 +12,14 @@
 pane 里实时预览微信小程序 UI：打开时显示工作区检测 + 三个渲染方案的选择器卡片，
 选一个后变成像素帧预览，Claude 每编辑一次小程序文件自动防抖刷新。
 
-**现状**（2026-10-05 午更新）：方案 A **端到端全链路通过**（含编辑→自动刷新）
-+ **实时直播模式落地**（Roadmap #3：CDP screencast 常驻守护，`h5Live` 配置
-开启，真会话验证「外部改文件→帧自动流入 pane」）；方案 C 渲染桥已实现
-（simulate + jsdom）。三方案里只剩 B 因本机无 DevTools 无法实测。
-validate / test 全绿（4 个测试）。
+**现状**（2026-10-05 午后更新）：方案 A 全链路 + 实时直播（#3）+ **点击穿透**
+（#4·A 直播通道：Client 捕获层 → 守护 /click → CDP Input，curl 实测页面计数
+真实 +1）；方案 C 渲染桥已实现。直播白帧双坑已修（见 §4.14）。三方案里只剩
+B 因本机无 DevTools 无法实测。validate / test 全绿（5 个测试）。
 
-**你接手后的第一件事**：按 §6 Roadmap 推进（下一个是点击穿透，依赖 B 环境，
-或常驻进程的更多玩法）；taro 测试项目与 C 冒烟夹具的用法见 §7。
+**你接手后的第一件事**：真终端里手动点一下直播画面（SGR 注入没能模拟，
+见 §4.15——引擎 kit 已验插件侧，就差真人点一下确认 Ghostty 指针链路）；
+之后按 §6 Roadmap 推进。
 
 ---
 
@@ -59,6 +59,7 @@ validate / test 全绿（4 个测试）。
 | npm 依赖 | ✅ 已装 | 77 个包（miniprogram-automator 及其依赖树；若干 deprecation 警告，无害） |
 | 端到端实测 | ✅ 全链路（含自动刷新） | 2026-10-05 夜：PTY 驱动真交互会话，编辑 index.tsx 后 500ms 防抖 → 桥 → 新帧（6166→6514 字节） |
 | 实时直播（#3） | ✅ 真会话验证 | 2026-10-05 午：PTY 会话 h5Live on，外部 sed 改页面 → 帧文件 11:55:45→11:56:02 更新、pane 走到「第 2 帧」；管线有单测锁定 |
+| 点击穿透（#4·A） | ✅ curl 实测 + 单测 | 2026-10-05 午后：守护 /click 打在按钮上 → 页面计数 0→1（帧 md5 变化）；pane→守护全链有单测（坐标换算精确断言）。**注意**：#3 当时的"帧更新"验证被白帧 bug 污染过，白帧修复（§4.14）后已重新像素级验证 |
 
 **环境事实**（都在本机验证过）：
 
@@ -206,6 +207,17 @@ settings.json `pluginConfigs["wxmp-preview"]` 生效，改动热重载生效。
 13. **call 类事件的钩子协议三兄弟**：`process.run` 回 `{ value }`；`tool.call`
     垫底回 `{ result }`；`process.spawn` 流式钩子 yield 裸块、**return 也要
     `{ value }` 包装**（报错信息会直说缺哪个）。
+14. **headless screencast 白帧双坑（#3 时代漏检、#4 时捉到）**：(a)
+    `--disable-gpu` 让 screencast 只出白帧——`captureScreenshot` 有软件兜底
+    不受影响，一次性桥正常会掩盖此坑；(b) SwiftShader 惰性合成：静态内容
+    画进图层但不上屏，screencast 只报变化，白屏永远等不来内容帧。解法
+    组合：不禁 GPU + `Page.bringToFront` + **先 startScreencast 再
+    Page.navigate** + 导航后 2s 补一发 captureScreenshot 踢首次合成。
+    教训：**帧内容验证必须像素级**——md5/字节变化会被 HMR 白屏闪烁骗过
+    （#3 的"验证"当时就被骗了）。
+15. **SGR 鼠标序列注入 PTY 未成功**（\x1b[<0;col;row;M/m）：未见
+    「点击已转发」。终端→Client 指针路径未验证——引擎 kit 已验插件侧
+    （ui.pointer 直喂 onPointer），就差真人在 Ghostty 里点一下。
 
 ---
 
@@ -248,8 +260,11 @@ settings.json `pluginConfigs["wxmp-preview"]` 生效，改动热重载生效。
 3. ~~方案 A 升级 CDP screencast~~ ✅ 2026-10-05：`h5Live` 配置开启；守护
    `bridges/live-bridge.mjs`（CDP 裸写，零新依赖）；热重载孤儿靠 pidfile
    兜底 + session.start 自动重连；真会话验证过「外部改文件→帧自动流入」。
-4. **点击穿透**：`Client` 元素 + `onPointer` 亚像素坐标 + automator 的
-   `element.offset()/size()` 反查 rect → `element.tap()`。
+4. ~~点击穿透~~ ✅（A·直播通道，2026-10-05 午后）：Client 捕获层
+   （hooks/live-client.tsx）→ `post` → `ui.message` → 守护 `/click` →
+   CDP `Input.dispatchMouseEvent`；坐标按帧 metadata 的 deviceWidth 精确
+   换算。curl 实测页面计数 +1。B·automator 通道（element.tap）待 DevTools
+   环境另起一期；C·simulate 需常驻浏览器会话，同 #3 架构。
 5. ~~常驻桥进程~~ ✅（随 #3 落地：live-bridge + `$.process.spawn` 流式消费，
    生命周期 stopLive/return() + pidfile 孤儿回收 + 空闲自杀）。
 

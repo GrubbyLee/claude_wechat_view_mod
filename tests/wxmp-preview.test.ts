@@ -123,3 +123,52 @@ test('live mode streams frames from the daemon', { options: { h5Live: 'on' } }, 
 
   await ui.unmount()
 })
+
+/**
+ * 点击穿透：直播模式下画面上盖 liveview 捕获层（Client），tap 坐标 post 回
+ * 插件，按区域尺寸换算成帧像素后转发守护的 HTTP 控制口。
+ */
+test('live mode forwards pane taps to the daemon', { options: { h5Live: 'on' } }, async ($, on) => {
+  mock.clock(on)
+  mock.store(on)
+
+  // 闸门：守护常驻（流不结束）——流结束 = 守护退出，会把 live 翻回 false
+  let release!: () => void
+  const gate = new Promise<void>(resolve => {
+    release = resolve
+  })
+  on('process.spawn', async function* () {
+    yield {
+      stream: 'stdout',
+      text: '{"ok":true,"event":"started","pid":1,"path":"/tmp/wxmp-live-frame.png","port":18080}\n',
+    }
+    yield {
+      stream: 'stdout',
+      text: '{"ok":true,"event":"frame","frame":1,"path":"/tmp/wxmp-live-frame.png","width":750,"height":870}\n',
+    }
+    await gate
+    return { value: { code: 0, signal: null } }
+  })
+
+  const fetches: { url: string; body: { x?: unknown; y?: unknown } }[] = []
+  on('http.fetch', async (_$, e) => {
+    fetches.push({ url: e.url, body: JSON.parse(e.init?.body ?? '{}') })
+    return { value: { status: 200, ok: true, headers: {}, body: '{"ok":true}' } }
+  })
+
+  const ui = await $.ui.mount({ plugin: 'wxmp-preview', surface: 'terminal', ...PANE })
+  await ui.press({ key: 'use-h5' })
+
+  // 给捕获层定区域尺寸（真实终端测量后才有的值），再喂一个 tap（up 事件）
+  await ui.resize({ columns: 54, rows: 24, in: 'liveview' })
+  await ui.pointer({ type: 'up', x: 27, y: 12, button: 'left' })
+
+  expect(fetches).toHaveLength(1)
+  expect(fetches[0]?.url).toBe('http://127.0.0.1:18080/click')
+  // 模块把格中心 (27.5, 12.5) post 上来，插件按 54x24 区域 → 750x870 帧换算
+  expect(Math.round(Number(fetches[0]?.body.x))).toBe(Math.round((27.5 / 54) * 750))
+  expect(Math.round(Number(fetches[0]?.body.y))).toBe(Math.round((12.5 / 24) * 870))
+
+  release()
+  await ui.unmount()
+})

@@ -54,7 +54,7 @@ claude --plugin-dir /home/arabica/codes/claude_wechat_view
 | `defaultSource` | `auto` | `auto` / `h5` / `devtools` / `simulate` |
 | `h5Url` | `http://localhost:10086` | 方案 A 的 dev server 地址 |
 | `browser` | 空 | Chromium 路径（留空自动探测 PATH） |
-| `h5Live` | `off` | `on` = 方案 A 实时直播（CDP screencast，改代码即出帧） |
+| `h5Live` | `off` | `on` = 方案 A 实时直播（CDP screencast，改代码即出帧，画面可点击） |
 | `devtoolsCli` | 空 | 开发者工具 CLI 路径（Linux 社区版需指定） |
 | `devtoolsPort` | `9420` | 自动化端口 |
 | `autoRefresh` | `on` | 编辑后自动刷新（直播模式下自动让位） |
@@ -101,5 +101,6 @@ Mod 与 Claude Code 本体拥有相同的机器权限。本插件只执行：读
 
 - [x] 方案 C 渲染桥（miniprogram-simulate + jsdom + headless 浏览器）
 - [x] 方案 A 升级为 CDP screencast（h5Live 配置开启；screencast 变化才出帧，上限 15fps 可调）
-- [ ] 点击穿透：pane 里的指针事件 → automator 元素 rect 反查 → `element.tap()`
-- [ ] 常驻桥进程（session.start 拉起，`process.spawn` 流式收帧）
+- [x] 点击穿透（A·直播）：Client 捕获层 → 守护 `/click` → CDP Input.dispatchMouseEvent；
+  B·automator 通道待 DevTools 环境实测
+- [x] 常驻桥进程（live-bridge：`$.process.spawn` 流式收帧 + pidfile 孤儿回收）

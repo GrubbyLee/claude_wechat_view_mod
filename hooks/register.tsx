@@ -63,6 +63,8 @@ const LIVE_PID = '/tmp/wxmp-live.pid'
 let liveStream: HookStream<ProcessSpawnChunk, ProcessSpawnResult> | null = null
 let liveBuf = ''
 let lastLiveStateAt = 0
+/** 守护 HTTP 控制口端口（随 started 事件上报；点击穿透用） */
+let livePort: number | null = null
 
 // ---------- 核心动作（全部顶层声明，接收 `$`） ----------
 
@@ -195,6 +197,7 @@ const stopLive = async ($: EngineInterface): Promise<void> => {
   const stream = liveStream
   liveStream = null
   liveBuf = ''
+  livePort = null
   if (stream !== null) {
     try {
       await stream.return()
@@ -224,6 +227,7 @@ const onLiveLine = async ($: EngineInterface, line: string): Promise<void> => {
     return
   }
   if (msg.event === 'started') {
+    livePort = typeof msg.port === 'number' ? msg.port : null
     await update($, active, a => (a === null ? a : { ...a, live: true, lastError: null, busy: false }))
     $.ui.status('wxmp · 直播：✓ 已连接')
     return
@@ -280,6 +284,30 @@ const pumpLive = async (
     // 流被 return() 中止：正常停止路径
   }
   await update($, active, a => (a === null || !a.live ? a : { ...a, live: false })).catch(() => undefined)
+}
+
+/** pane 里的点击（liveview 捕获层 post 上来）→ 格坐标换算帧像素 → 转发守护 */
+const onTapForward = async ($: EngineInterface, data: unknown): Promise<void> => {
+  if (typeof data !== 'object' || data === null) return
+  const msg = data as { type?: unknown; x?: unknown; y?: unknown; cols?: unknown; rows?: unknown }
+  if (msg.type !== 'tap') return
+  if (typeof msg.x !== 'number' || typeof msg.y !== 'number' || typeof msg.cols !== 'number' || typeof msg.rows !== 'number') return
+  if (msg.cols <= 0 || msg.rows <= 0 || livePort === null) return
+  const act = await read($, active)
+  if (act === null || !act.live || act.frameWidth === null || act.frameHeight === null) return
+  if (act.frameWidth <= 0 || act.frameHeight <= 0) return
+  const px = (msg.x / msg.cols) * act.frameWidth
+  const py = (msg.y / msg.rows) * act.frameHeight
+  try {
+    const res = await $.http.fetch(`http://127.0.0.1:${livePort}/click`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ x: px, y: py }),
+    })
+    $.ui.status(res.ok ? 'wxmp · 点击已转发' : `wxmp · 点击转发失败（HTTP ${res.status}）`)
+  } catch (err) {
+    $.ui.status(`wxmp · 点击转发失败：${err instanceof Error ? err.message : String(err)}`)
+  }
 }
 
 /** 起直播守护（先停旧的，含孤儿补刀） */
@@ -536,6 +564,17 @@ const drawPreview = async ($: EngineInterface, e: PaneRender, cfg: BridgeConfig)
         ? '尚未取得画面。点击 [刷新] 抓取第一帧（或输 /wxmp refresh）；\n若失败，看上方红色错误行排查（依赖 / 端口 / DevTools）。'
         : ''
 
+  // 直播模式：画面上盖一层透明点击捕获（Client），tap 坐标 post 回插件转发守护
+  let clickLayer: RenderElement | null = null
+  if (e.surface === 'terminal' && act !== null && act.live && act.framePath !== null) {
+    const { Client } = $.ui.resolve(e)
+    clickLayer = (
+      <Box position="absolute" top={0} left={0} width={imageColumns} height={imageRows}>
+        <Client key="liveview" module="./live-client.tsx" width="100%" height="100%" />
+      </Box>
+    )
+  }
+
   return (
     <Box flexDirection="column">
       <Box gap={1}>
@@ -561,6 +600,9 @@ const drawPreview = async ($: EngineInterface, e: PaneRender, cfg: BridgeConfig)
       {e.surface === 'terminal' && (
         <Text dimColor wrap="truncate">点 [刷新] 或 /wxmp refresh；ctrl+x→tab 后按 r/s</Text>
       )}
+      {e.surface === 'terminal' && act !== null && act.live && act.framePath !== null && (
+        <Text dimColor wrap="truncate">直播中：点击画面可交互（穿透到页面）</Text>
+      )}
       {/* placement 引擎决定（全屏 + ≥110 列才 dock 右侧）；inline 时给用户指路 */}
       {e.surface === 'terminal' && e.props.placement === 'inline' && (
         <Text dimColor wrap="truncate">终端拉宽到 110 列以上（全屏模式）时，预览会停靠到对话右侧</Text>
@@ -568,13 +610,16 @@ const drawPreview = async ($: EngineInterface, e: PaneRender, cfg: BridgeConfig)
       {act !== null && act.lastError !== null && (
         <Text color="red" wrap="wrap">✗ {act.lastError}</Text>
       )}
-      {frame !== null ? (
-        frame
-      ) : (
-        <Box borderStyle="round" height={imageRows} padding={1}>
-          <Text dimColor wrap="wrap">{placeholder}</Text>
-        </Box>
-      )}
+      <Box>
+        {frame !== null ? (
+          frame
+        ) : (
+          <Box borderStyle="round" height={imageRows} padding={1}>
+            <Text dimColor wrap="wrap">{placeholder}</Text>
+          </Box>
+        )}
+        {clickLayer}
+      </Box>
     </Box>
   )
 }
@@ -693,5 +738,11 @@ export const register: Register = (on, options) => {
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e: PaneRender) => {
     const mode = await read($, screen)
     return mode === 'preview' ? drawPreview($, e, cfg) : drawChooser($, e, cfg)
+  })
+
+  // 点击穿透：liveview 捕获层 post 的 tap → 换算坐标 → 转发直播守护
+  on('ui.message', async ($, e, next) => {
+    await onTapForward($, e.data)
+    return next(e)
   })
 }

@@ -17,7 +17,8 @@
 
 import { spawn } from 'node:child_process'
 import { readFileSync, unlinkSync, writeFileSync } from 'node:fs'
-import { rename, writeFile } from 'node:fs/promises'
+import { readFile, rename, writeFile } from 'node:fs/promises'
+import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -94,11 +95,12 @@ async function main() {
   }
 
   // 3. 起 chromium：调试端口自动分配，从 stderr 解析 DevTools WS 地址。
-  //    视口按手机 CSS 尺寸（375x667），dsf=2 让 screencast 出 2x 清晰度的帧
+  //    视口按手机 CSS 尺寸（375x667），dsf=2 让 screencast 出 2x 清晰度的帧。
+  //    注意：不能加 --disable-gpu——screencast 走合成器回读，禁 GPU 只出白帧
+  //    （captureScreenshot 有软件兜底不受影响，别被一次性截图的正常骗了）
   const chrome = spawn(browsers[0], [
     '--headless=new',
     '--no-sandbox',
-    '--disable-gpu',
     '--hide-scrollbars',
     '--remote-debugging-port=0',
     `--window-size=${WIDTH},${HEIGHT}`,
@@ -118,12 +120,14 @@ async function main() {
         // 读不到（已删/权限）就不管
       }
     }
+    try { server?.close() } catch { /* 已关 */ }
     try { ws?.close() } catch { /* 已关 */ }
     try { chrome.kill('SIGTERM') } catch { /* 已退 */ }
     process.exit(code)
   }
   let idleTimer = null
   let ws = null
+  let server = null
   process.on('SIGTERM', () => cleanup(0))
   process.on('SIGINT', () => cleanup(0))
   chrome.on('close', () => { if (!closed) cleanup(0) })
@@ -186,29 +190,80 @@ async function main() {
   }
   ws.onclose = () => { if (!closed) cleanup(0) }
 
-  // 5. 开页面 + screencast
+  // 5. 开直播再导航：先开 about:blank 的 screencast，再 Page.navigate——
+  //    顺序反过来（先加载后开播）会错过首屏绘制，screencast 只报变化，
+  //    静态页面永远停在白帧上
   let session = null
   try {
-    const { targetId } = await send('Target.createTarget', { url: PAGE_URL })
+    const { targetId } = await send('Target.createTarget', { url: 'about:blank' })
     const attached = await send('Target.attachToTarget', { targetId, flatten: true })
     session = attached.sessionId
     await send('Page.enable', {}, session)
+    // headless 的后台标签可能不合成，先调到前台再开直播
+    await send('Page.bringToFront', {}, session)
     await send(
       'Page.startScreencast',
       { format: 'png', maxWidth: WIDTH * 2, maxHeight: HEIGHT * 2, everyFrameIfNecessary: false },
       session,
     )
+    await send('Page.navigate', { url: PAGE_URL }, session)
+    // SwiftShader 惰性合成：headless 无 GPU 时合成器不主动上屏，静态内容
+    // 永远等不来 screencast 帧。导航后用 captureScreenshot 踢一脚强制合成，
+    // 首屏内容帧随即流入；之后的真实变化（HMR/点击）由 screencast 自己报
+    setTimeout(() => {
+      void send('Page.captureScreenshot', { format: 'png' }, session).catch(() => undefined)
+    }, 2000)
   } catch (err) {
     cleanup(0)
     return emit({ ok: false, error: `CDP 启动失败：${err instanceof Error ? err.message : String(err)}` })
   }
+  // 6. 控制通道：localhost HTTP。spawn 的 stdin 天生关闭，点击指令从这里进；
+  //    端口随 started 事件上报，插件拿它 POST /click（坐标为帧像素，÷2 成 CSS）
+  server = createServer((req, res) => {
+    if (req.method !== 'POST' || req.url !== '/click') {
+      res.writeHead(404, { 'content-type': 'application/json' })
+      res.end('{"ok":false,"error":"not found"}')
+      return
+    }
+    let body = ''
+    req.on('data', c => { body += c })
+    req.on('end', () => {
+      void (async () => {
+        try {
+          const { x, y } = JSON.parse(body)
+          if (typeof x !== 'number' || typeof y !== 'number' || !Number.isFinite(x) || !Number.isFinite(y)) {
+            throw new Error('坐标必须是有限数字')
+          }
+          // 帧像素 → CSS：按最近一帧的 宽度比 换算（dsf 与视口quirk都吃掉）
+          const buf = await readFile(OUT).catch(() => null)
+          const frameW = buf === null ? WIDTH * 2 : pngSize(buf).width
+          const scale = lastCssWidth / frameW
+          const cssX = x * scale
+          const cssY = y * scale
+          await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: cssX, y: cssY, button: 'left', clickCount: 1 }, session)
+          await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: cssX, y: cssY, button: 'left', clickCount: 1 }, session)
+          res.writeHead(200, { 'content-type': 'application/json' })
+          res.end('{"ok":true}')
+        } catch (err) {
+          res.writeHead(500, { 'content-type': 'application/json' })
+          res.end(JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) }))
+        }
+      })()
+    })
+  })
+  await new Promise(resolve => {
+    server.listen(0, '127.0.0.1', resolve)
+  })
+
   if (PIDFILE !== null) writeFileSync(PIDFILE, String(process.pid))
-  emit({ ok: true, event: 'started', pid: process.pid, path: OUT })
+  emit({ ok: true, event: 'started', pid: process.pid, path: OUT, port: server.address().port })
 
   // 6. 帧循环：ack 每帧必发（流控）；节流只影响写盘与上报
   let frame = 0
   let lastEmit = 0
   let lastFrameAt = Date.now()
+  // 最近一帧的 CSS 视口宽（metadata.deviceWidth），点击坐标按它换算
+  let lastCssWidth = WIDTH
   async function onEvent(msg) {
     if (msg.method !== 'Page.screencastFrame') return
     const sid = msg.params?.sessionId
@@ -219,6 +274,8 @@ async function main() {
     }
     const now = Date.now()
     lastFrameAt = now
+    const meta = msg.params.metadata
+    if (typeof meta?.deviceWidth === 'number' && meta.deviceWidth > 0) lastCssWidth = meta.deviceWidth
     if (now - lastEmit < 1000 / MAX_FPS) return
     lastEmit = now
     frame += 1
