@@ -129,14 +129,16 @@ const refresh = async ($: EngineInterface, cfg: BridgeConfig): Promise<void> => 
 
     const argv = ['node', bridgeScript(cur.kind, $.plugin.root), ...bridgeArgs(cur.kind, cfg)]
     if (cur.kind === 'h5') {
-      // dev server 没起时让桥自动拉起（npm run <脚本>，detached + pidfile，跨刷新幂等）
+      // --start-dir 恒传（桥做 dev server 归属校验：别的项目占着端口时拒用）；
+      // --start-script 有才传（dev server 自动拉起用）
       try {
         const det = await read($, detection)
-        if (det !== null && det.h5Script !== null) {
-          argv.push('--start-script', det.h5Script, '--start-dir', det.projectDir)
+        if (det !== null) {
+          argv.push('--start-dir', det.projectDir)
+          if (det.h5Script !== null) argv.push('--start-script', det.h5Script)
         }
       } catch {
-        // 拿不到检测就不带启动参数（桥只报引导文案）
+        // 拿不到检测就不带参数（桥按宽松处理）
       }
     }
     if (cur.kind === 'simulate') {

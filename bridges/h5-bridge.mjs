@@ -32,6 +32,11 @@ const START_DIR = argv['start-dir'] ?? '.'
 /** 自动拉起的 dev server 的 pidfile 与日志（同机单实例；手动停：kill $(cat pidfile)） */
 const DEV_PID = '/tmp/wxmp-h5-dev.pid'
 const DEV_LOG = '/tmp/wxmp-h5-dev.log'
+/** 归属校验的工程根（--start-dir 解析）；防的是"别的项目的 dev server 恰好占着端口" */
+const OWNERSHIP_ROOT = resolve(START_DIR)
+
+/** 记录被拒用的外来 server，供报错文案说明 */
+let foreignNote = ''
 
 const emit = msg => {
   process.stdout.write(JSON.stringify(msg) + '\n')
@@ -82,14 +87,44 @@ const alive = async u => {
 const CANDIDATE_PORTS = [5173, 8080, 3000]
 
 /**
+ * URL 的监听进程是否属于当前工程（Linux：ss 查监听 pid → /proc/<pid>/cwd）。
+ * 查不动（无 ss / 非 Linux / 拿不到 pid）一律放行——宽松优先，别误杀可用路径。
+ */
+async function serverOwned(url) {
+  try {
+    const port = Number(new URL(url).port)
+    if (!Number.isInteger(port) || port <= 0) return true
+    const res = await run('ss', ['-tlnp'], 5000)
+    if (!res.ok) return true
+    const line = res.stdout.split('\n').find(l => l.includes(`:${port} `))
+    if (line === undefined) return true
+    const pidMatch = line.match(/pid=(\d+)/)
+    if (pidMatch === null) return true
+    const cwd = await run('readlink', [`/proc/${pidMatch[1]}/cwd`], 3000)
+    if (!cwd.ok) return true
+    const dir = cwd.stdout.trim()
+    if (dir === '') return true
+    return (
+      dir === OWNERSHIP_ROOT ||
+      dir.startsWith(OWNERSHIP_ROOT + '/') ||
+      OWNERSHIP_ROOT.startsWith(dir + '/')
+    )
+  } catch {
+    return true
+  }
+}
+
+/**
  * 确保 dev server 可用：先探配置的 URL，再探常见端口；全都不通且给了启动脚本时
  * 自动拉起（detached + pidfile，幂等）并轮询等就绪。返回可用 URL 或 null。
  */
 async function ensureServer(cfgUrl) {
-  if (await alive(cfgUrl)) return cfgUrl
+  if ((await alive(cfgUrl)) && (await serverOwned(cfgUrl))) return cfgUrl
+  if (await alive(cfgUrl)) foreignNote = `${cfgUrl} 上跑着其他工程的 dev server（已拒用）`
   for (const port of CANDIDATE_PORTS) {
     const alt = await alive(`http://localhost:${port}`)
-    if (alt !== null) return alt
+    if (alt !== null && (await serverOwned(alt))) return alt
+    if (alt !== null && foreignNote === '') foreignNote = `${alt} 上跑着其他工程的 dev server（已拒用）`
   }
   if (START_SCRIPT === null) return null
 
@@ -137,7 +172,7 @@ async function main() {
       ok: false,
       error:
         START_SCRIPT === null
-          ? `H5 dev server 不可达：${url} —— 先在小程序工程目录启动（如 npm run dev:h5）。已试端口 10086/5173/8080/3000`
+          ? `H5 dev server 不可达：${url} —— 本项目没有 dev:h5 类脚本，方案 A 不适用${foreignNote === '' ? '' : `；${foreignNote}`}。建议 /wxmp 换方案 B（开发者工具直出）`
           : `dev server 自动启动后 70s 内未就绪（${START_DIR}: npm run ${START_SCRIPT}）—— 看 ${DEV_LOG} 排查；端口不在 10086/5173/8080/3000 之列时需在插件配置 h5Url 指定`,
     })
   }
