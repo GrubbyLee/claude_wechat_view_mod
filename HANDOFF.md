@@ -221,8 +221,7 @@ settings.json `pluginConfigs["wxmp-preview"]` 生效，改动热重载生效。
     （#3 的"验证"当时就被骗了）。
 15. **SGR 鼠标序列注入 PTY 未成功**（\x1b[<0;col;row;M/m）：未见
     「点击已转发」。终端→Client 指针路径未验证——引擎 kit 已验插件侧
-    （ui.pointer 直喂 onPointer），就差真人在 Ghostty 里点一下。
-16. **msojocs 移植版自动化三部曲**：`automator.connect` ✓（页面栈可用）；
+    （ui.pointer 直喂 onPointer），就差真人在 Ghostty 里点一下。16. **msojocs 移植版自动化三部曲**：`automator.connect` ✓（页面栈可用）；
     `App.captureScreenshot` 指令**无响应**（挂起，协议日志证实）——截图改走
     CDP 直抓 `__pageframe__` webview。**三个端口概念别混**：服务端口
     （设置里开的 HTTP 口，如 11007）≠ automator 自动化 WS 端口
@@ -231,6 +230,13 @@ settings.json `pluginConfigs["wxmp-preview"]` 生效，改动热重载生效。
     的 launch 拼的是旧版参数 `--auto <path>`，msojocs CLI 打印 DEPRECATED
     且不生效，v2 拼法 `auto --project <path> --auto-port <port>` 才行；
     IDE 刚 auto 完的窗口期内 connect 会无声暴毙，等几秒再连。
+17. **FsEntry.kind 是 'dir' 不是 'directory'**：scanDirs 想当然写
+    `'directory'` 还过了 validate（TS 没拦跨类型字面量比较），症状是
+    工作区扫描静默空手而归。**monorepo 需求的由来**：zk-booking 这类
+    工作区根目录是管理后台+pnpm workspace，小程序在 apps/mobile——
+    根目录识别不出来的，必须扫子目录（一层全部 + apps/*/packages/*），
+    并把扫到的工程目录传给桥（B 用编译产物定向 cli open，C 用工程根）。
+    uni 工程没有 dev:h5 时推荐 B 是对的（他们的工作流就是 mp-weixin+DevTools）。
 
 ---
 

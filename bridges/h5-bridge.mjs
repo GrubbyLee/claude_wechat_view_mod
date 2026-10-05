@@ -60,15 +60,34 @@ async function findBrowsers(explicit) {
   return found
 }
 
-async function main() {
-  const url = argv.url ?? 'http://localhost:10086'
-
-  // 1. dev server 可达性（直接截 chrome 的错误页没有意义，先拦掉）
+/** 探活一个 URL（2.5s 超时） */
+const alive = async u => {
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(5000), redirect: 'follow' })
-    if (!res.ok) return emit({ ok: false, error: `H5 dev server 返回 HTTP ${res.status}：${url}` })
-  } catch (err) {
-    return emit({ ok: false, error: `H5 dev server 不可达：${url} —— 先启动（如 npm run dev:h5）。${err?.message ?? err}` })
+    const res = await fetch(u, { signal: AbortSignal.timeout(2500), redirect: 'follow' })
+    return res.ok ? u : null
+  } catch {
+    return null
+  }
+}
+
+async function main() {
+  // 1. dev server 可达性；不通时探测常见端口（taro 10086 / uni·vite 5173 / webpack 8080·3000），
+  //    monorepo 里用户往往忘了改 h5Url，这里兜一把
+  let url = argv.url ?? 'http://localhost:10086'
+  if ((await alive(url)) === null) {
+    let alt = null
+    for (const port of [5173, 8080, 3000]) {
+      alt = await alive(`http://localhost:${port}`)
+      if (alt !== null) break
+    }
+    if (alt === null) {
+      return emit({
+        ok: false,
+        error: `H5 dev server 不可达：${url} —— 先在小程序工程目录启动（如 npm run dev:h5）。已试端口 10086/5173/8080/3000`,
+      })
+    }
+    emit({ ok: true, event: 'log', msg: `配置的 ${url} 不可达，自动改用 ${alt}` })
+    url = alt
   }
 
   // 2. 找浏览器（全部可用候选，按优先级排序）

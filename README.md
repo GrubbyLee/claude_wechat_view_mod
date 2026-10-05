@@ -13,7 +13,7 @@
 | 前提 | 项目能跑 `dev:h5`；本机有 Chromium | 微信开发者工具以 `--remote-debugging-port=9333` 启动并打开项目 | 无（`npm i` 即用） |
 | 适用 | Taro / uni-app / mpx 项目 | 原生小程序（或任何想要 100% 保真的场景） | 没有 DevTools 时的轻量方案 |
 
-自动检测逻辑：`package.json` 里找 `@tarojs/*` / `@dcloudio/*` / `@mpxjs*` → 推荐 A；存在 `project.config.json` → 原生项目，找到 DevTools CLI 推荐 B，否则推荐 C。
+自动检测逻辑：根目录 `package.json` 找 `@tarojs/*` / `@dcloudio/*` / `@mpxjs*`，或 `manifest.json+pages.json`（HBuilderX）；根目录不是小程序工程时**自动扫子目录**（monorepo：`apps/*`、`packages/*` 等）→ 有 `dev:h5` 推荐 A，纯 mp-weixin 工作流推荐 B，原生项目找到 DevTools CLI 推荐 B 否则 C。
 
 ## 安装
 

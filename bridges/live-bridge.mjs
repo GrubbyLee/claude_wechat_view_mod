@@ -32,7 +32,7 @@ function parseArgs(list) {
 }
 
 const argv = parseArgs(process.argv.slice(2))
-const PAGE_URL = argv.url ?? 'http://localhost:10086'
+
 const WIDTH = Number(argv.width ?? 375)
 const HEIGHT = Number(argv.height ?? 667)
 const MAX_FPS = Number(argv['max-fps'] ?? 15)
@@ -79,13 +79,33 @@ async function findBrowsers(explicit) {
 /** PNG 头 IHDR 里读宽高（大端，偏移 16/20），帧事件里上报给插件 */
 const pngSize = buf => ({ width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) })
 
-async function main() {
-  // 1. dev server 探活（与 A 截图模式同一防呆：连不上不开浏览器）
+/** 探活一个 URL（2.5s 超时） */
+const alive = async u => {
   try {
-    const res = await fetch(PAGE_URL, { signal: AbortSignal.timeout(5000), redirect: 'follow' })
-    if (!res.ok) return emit({ ok: false, error: `H5 dev server 返回 HTTP ${res.status}：${PAGE_URL}` })
-  } catch (err) {
-    return emit({ ok: false, error: `H5 dev server 不可达：${PAGE_URL} —— 先启动（如 npm run dev:h5）。${err?.message ?? err}` })
+    const res = await fetch(u, { signal: AbortSignal.timeout(2500), redirect: 'follow' })
+    return res.ok ? u : null
+  } catch {
+    return null
+  }
+}
+
+async function main() {
+  // 1. dev server 探活（与 A 截图模式同一防呆）；不通时探测常见端口兜一把
+  let pageUrl = argv.url ?? 'http://localhost:10086'
+  if ((await alive(pageUrl)) === null) {
+    let alt = null
+    for (const port of [5173, 8080, 3000]) {
+      alt = await alive(`http://localhost:${port}`)
+      if (alt !== null) break
+    }
+    if (alt === null) {
+      return emit({
+        ok: false,
+        error: `H5 dev server 不可达：${pageUrl} —— 先在小程序工程目录启动（如 npm run dev:h5）。已试端口 10086/5173/8080/3000`,
+      })
+    }
+    emit({ ok: true, event: 'log', msg: `配置的 ${pageUrl} 不可达，自动改用 ${alt}` })
+    pageUrl = alt
   }
 
   // 2. 找浏览器
@@ -206,7 +226,7 @@ async function main() {
       { format: 'png', maxWidth: WIDTH * 2, maxHeight: HEIGHT * 2, everyFrameIfNecessary: false },
       session,
     )
-    await send('Page.navigate', { url: PAGE_URL }, session)
+    await send('Page.navigate', { url: pageUrl }, session)
     // SwiftShader 惰性合成：headless 无 GPU 时合成器不主动上屏，静态内容
     // 永远等不来 screencast 帧。导航后用 captureScreenshot 踢一脚强制合成，
     // 首屏内容帧随即流入；之后的真实变化（HMR/点击）由 screencast 自己报

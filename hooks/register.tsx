@@ -13,6 +13,7 @@ import {
   MINI_PROGRAM_FILE,
   bridgeArgs,
   bridgeScript,
+  h5ScriptOf,
   isSourceKind,
   parseBridgeResult,
   parseLiveLine,
@@ -128,11 +129,22 @@ const refresh = async ($: EngineInterface, cfg: BridgeConfig): Promise<void> => 
 
     const argv = ['node', bridgeScript(cur.kind, $.plugin.root), ...bridgeArgs(cur.kind, cfg)]
     if (cur.kind === 'simulate') {
-      // simulate 桥按项目根找 app.json；显式传 --project，不赌 process.run 的 cwd
+      // simulate 桥按工程目录找 app.json；用 detect 扫到的（monorepo 子目录），
+      // 拿不到就退回 '.'（桥相对 cwd 解析）
       try {
-        argv.push('--project', await $.session.cwd())
+        const det = await read($, detection)
+        argv.push('--project', det !== null && det.projectDir !== '' ? det.projectDir : '.')
       } catch {
-        // 拿不到 cwd 就让桥用 process.cwd() 默认值
+        argv.push('--project', '.')
+      }
+    }
+    if (cur.kind === 'devtools') {
+      // 让桥用 CLI 打开/聚焦本工作区的编译产物（多窗口时对准当前项目）
+      try {
+        const det = await read($, detection)
+        if (det !== null && det.devtoolsProject !== null) argv.push('--project', det.devtoolsProject)
+      } catch {
+        // 拿不到就不传：桥抓当前打开的模拟器窗口
       }
     }
     const res = await $.process.run(argv, { timeoutMs: 90000 })
@@ -331,18 +343,25 @@ const startLive = async ($: EngineInterface, cfg: BridgeConfig): Promise<void> =
   void pumpLive($, liveStream)
 }
 
-/**
- * 探测当前工作区是什么样的小程序项目、环境里有什么工具。
- * 所有 $ 调用就地 try/catch，探测失败当"没有"，绝不抛。
- */
-const detect = async ($: EngineInterface, cfg: BridgeConfig): Promise<Detection> => {
-  const evidence: string[] = []
-  let project: ProjectKind = 'unknown'
-  let h5Script: string | null = null
+/** 一个目录的小程序工程分类结果（classifyDir 用） */
+interface DirClass {
+  kind: ProjectKind
+  h5Script: string | null
+  note: string
+}
 
+/** 子目录扫描跳过的目录（产物/依赖/文档，扫了也白扫） */
+const SCAN_SKIP = new Set([
+  'node_modules', '.git', 'dist', 'unpackage', 'build', 'coverage',
+  '.claude', 'tests', 'docs', 'deploy', '.output', '.nuxt',
+])
+
+/** 分类一个目录是不是小程序工程（dir 相对工作区根；null = 不是） */
+const classifyDir = async ($: EngineInterface, dir: string): Promise<DirClass | null> => {
+  const at = (name: string): string => (dir === '.' ? name : `${dir}/${name}`)
   let pkgText = ''
   try {
-    pkgText = await $.fs.read('package.json')
+    pkgText = await $.fs.read(at('package.json'))
   } catch {
     pkgText = ''
   }
@@ -351,58 +370,110 @@ const detect = async ($: EngineInterface, cfg: BridgeConfig): Promise<Detection>
     ...Object.keys(pkg?.dependencies ?? {}),
     ...Object.keys(pkg?.devDependencies ?? {}),
   ])
-  const scripts = Object.keys(pkg?.scripts ?? {})
+  const hasDep = (prefix: string): boolean => [...deps].some(d => d.startsWith(prefix))
 
   let hasProjectConfig = false
   try {
-    hasProjectConfig = await $.fs.exists('project.config.json')
+    hasProjectConfig = await $.fs.exists(at('project.config.json'))
   } catch {
     hasProjectConfig = false
   }
-
   // HBuilderX 的 uni-app 工程：没有标准 package.json 依赖，靠 manifest+pages 识别
   let hasUniManifest = false
   try {
-    hasUniManifest = (await $.fs.exists('manifest.json')) && (await $.fs.exists('pages.json'))
+    hasUniManifest = (await $.fs.exists(at('manifest.json'))) && (await $.fs.exists(at('pages.json')))
   } catch {
     hasUniManifest = false
   }
 
-  if (pkg === null) {
-    if (hasUniManifest) {
-      project = 'uni'
-      evidence.push('manifest.json + pages.json → uni-app（HBuilderX 工程）')
-    } else {
-      project = hasProjectConfig ? 'native' : 'none'
-      evidence.push(hasProjectConfig ? '存在 project.config.json → 原生小程序' : '未发现 package.json / project.config.json')
+  const scripts = Object.keys(pkg?.scripts ?? {})
+  if (pkg !== null && hasDep('@tarojs/')) return { kind: 'taro', h5Script: h5ScriptOf(scripts), note: 'Taro' }
+  if (pkg !== null && hasDep('@dcloudio/')) return { kind: 'uni', h5Script: h5ScriptOf(scripts), note: 'uni-app' }
+  if (pkg !== null && (hasDep('@mpxjs/') || deps.has('mpx'))) return { kind: 'mpx', h5Script: h5ScriptOf(scripts), note: 'mpx' }
+  if (hasUniManifest) return { kind: 'uni', h5Script: null, note: 'uni-app（HBuilderX）' }
+  if (hasProjectConfig) return { kind: 'native', h5Script: null, note: '原生小程序' }
+  return null
+}
+
+/** monorepo 子目录候选：一层全部 + apps/*、packages/* 两层（工作区惯例） */
+const scanDirs = async ($: EngineInterface): Promise<string[]> => {
+  const out: string[] = []
+  try {
+    const entries = await $.fs.list()
+    const dirs = entries.filter(e => e.kind === 'dir' && !SCAN_SKIP.has(e.name)).map(e => e.name)
+    out.push(...dirs)
+    for (const group of ['apps', 'packages']) {
+      if (!dirs.includes(group)) continue
+      try {
+        const sub = await $.fs.list(group)
+        for (const e of sub) {
+          if (e.kind === 'dir' && !SCAN_SKIP.has(e.name)) out.push(`${group}/${e.name}`)
+        }
+      } catch {
+        // 列不了就跳过这组
+      }
     }
-  } else {
-    evidence.push(`package.json：${deps.size} 个依赖，${scripts.length} 个脚本`)
-    const hasDep = (prefix: string): boolean => [...deps].some(d => d.startsWith(prefix))
-    if (hasDep('@tarojs/')) {
-      project = 'taro'
-      evidence.push('依赖 @tarojs/* → Taro')
-    } else if (hasDep('@dcloudio/')) {
-      project = 'uni'
-      evidence.push('依赖 @dcloudio/* → uni-app')
-    } else if (hasDep('@mpxjs/') || deps.has('mpx')) {
-      project = 'mpx'
-      evidence.push('依赖 mpx → mpx 项目')
-    } else if (hasUniManifest) {
-      project = 'uni'
-      evidence.push('manifest.json + pages.json → uni-app（HBuilderX 工程）')
-    } else if (hasProjectConfig) {
-      project = 'native'
-      evidence.push('存在 project.config.json → 原生小程序')
-    } else {
-      evidence.push('未识别出跨端框架，也无 project.config.json')
-    }
-    h5Script =
-      scripts.find(s => /^dev:h5\b/i.test(s)) ??
-      scripts.find(s => /^dev[\w:]*h5/i.test(s)) ??
-      null
-    if (h5Script !== null) evidence.push(`dev 脚本 ${h5Script} 可起 H5`)
+  } catch {
+    // 工作区根都列不了：按"没有子目录"处理
   }
+  return out
+}
+
+/**
+ * 探测当前工作区是什么样的小程序项目、环境里有什么工具。
+ * 根目录不是小程序工程时扫子目录（monorepo：小程序常在 apps/mobile 这类位置）。
+ * 所有 $ 调用就地 try/catch，探测失败当"没有"，绝不抛。
+ */
+const detect = async ($: EngineInterface, cfg: BridgeConfig): Promise<Detection> => {
+  const evidence: string[] = []
+  let projectDir = '.'
+
+  let cls = await classifyDir($, '.')
+  if (cls !== null) {
+    evidence.push(`根目录：${cls.note}`)
+  } else {
+    evidence.push('根目录未识别出小程序工程，扫描子目录…')
+    for (const dir of await scanDirs($)) {
+      const c = await classifyDir($, dir)
+      if (c !== null) {
+        cls = c
+        projectDir = dir
+        evidence.push(`工作区扫描：${dir} → ${c.note} ✓`)
+        break
+      }
+    }
+    if (cls === null) evidence.push('子目录也未发现小程序工程')
+  }
+
+  const project: ProjectKind = cls?.kind ?? 'none'
+  const h5Script = cls?.h5Script ?? null
+  if (h5Script !== null) evidence.push(`dev 脚本 ${h5Script} 可起 H5`)
+
+  // 方案 B 在 DevTools 里应打开的工程：原生=源码根；跨端框架=编译产物目录
+  let devtoolsProject: string | null = null
+  if (project === 'native') {
+    devtoolsProject = projectDir
+  } else if (project !== 'none') {
+    const distCandidates = [
+      'dist/dev/mp-weixin',
+      'dist/build/mp-weixin',
+      'unpackage/dist/dev/mp-weixin',
+      'unpackage/dist/build/mp-weixin',
+      'dist',
+    ]
+    for (const rel of distCandidates) {
+      const p = projectDir === '.' ? rel : `${projectDir}/${rel}`
+      try {
+        if (await $.fs.exists(`${p}/app.json`)) {
+          devtoolsProject = p
+          break
+        }
+      } catch {
+        // 不存在就试下一个
+      }
+    }
+  }
+  if (devtoolsProject !== null) evidence.push(`DevTools 工程目录：${devtoolsProject}`)
 
   // DevTools CLI：显式配置优先，其次在 PATH 里找
   let devtoolsCli: string | null = null
@@ -435,15 +506,13 @@ const detect = async ($: EngineInterface, cfg: BridgeConfig): Promise<Detection>
   if (project === 'taro' || project === 'mpx') {
     recommend = 'h5'
   } else if (project === 'uni') {
-    // CLI 工程（有 dev:h5）走 A；HBuilderX 工程不跑 npm 链路，天然贴近 DevTools
+    // CLI 工程（有 dev:h5）走 A；HBuilderX/纯 mp-weixin 工作流不跑 npm 链路，贴近 DevTools
     recommend = h5Script !== null ? 'h5' : devtoolsCli !== null ? 'devtools' : 'h5'
   } else if (project === 'native') {
     recommend = devtoolsCli !== null ? 'devtools' : 'simulate'
-  } else if (project === 'unknown' && devtoolsCli !== null) {
-    recommend = 'devtools'
   }
 
-  return { project, evidence, recommend, devtoolsCli, h5Script }
+  return { project, evidence, recommend, devtoolsCli, h5Script, projectDir, devtoolsProject }
 }
 
 /** Claude 编辑小程序相关文件后，防抖刷新当前方案（直播模式下跳过：HMR 自己出帧） */

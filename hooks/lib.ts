@@ -39,6 +39,10 @@ export const safeJson = (text: string): PkgShape | null => {
   }
 }
 
+/** scripts 里能起 H5 dev server 的脚本名（dev:h5 优先，其次 dev:h5:xxx 类） */
+export const h5ScriptOf = (scripts: readonly string[]): string | null =>
+  scripts.find(s => /^dev:h5\b/i.test(s)) ?? scripts.find(s => /^dev[\w:]*h5/i.test(s)) ?? null
+
 export const bridgeScript = (kind: SourceKind, root: string): string => {
   const name = kind === 'devtools' ? 'devtools-bridge' : kind === 'h5' ? 'h5-bridge' : 'simulate-bridge'
   return `${root}/bridges/${name}.mjs`

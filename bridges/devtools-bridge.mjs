@@ -14,9 +14,10 @@
 //   wechat-devtools --remote-debugging-port=9333
 //   （工具里打开项目后模拟器 webview 才会出现；多项目窗口取第一个 pageframe）
 
+import { spawn } from 'node:child_process'
 import { rename, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 
 function parseArgs(list) {
   const out = {}
@@ -31,9 +32,30 @@ const argv = parseArgs(process.argv.slice(2))
 const CDP = Number(argv.cdp ?? 9333)
 const TIMEOUT = Number(argv.timeout ?? 30000)
 const OUT = argv.out ?? join(tmpdir(), `wxmp-devtools-${process.pid}-${Date.now()}.png`)
+/** 工作区小程序的编译产物目录（detect 扫出来的）；有它就用 CLI 打开/聚焦对应窗口 */
+const PROJECT = argv.project ?? null
 
 const emit = msg => {
   process.stdout.write(JSON.stringify(msg) + '\n')
+}
+
+function run(cmd, args, timeoutMs) {
+  return new Promise(resolveRun => {
+    const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    let stdout = ''
+    let stderr = ''
+    child.stdout.on('data', d => { stdout += d })
+    child.stderr.on('data', d => { stderr += d })
+    const timer = setTimeout(() => child.kill('SIGKILL'), timeoutMs)
+    child.on('error', () => {
+      clearTimeout(timer)
+      resolveRun({ ok: false, stdout, stderr })
+    })
+    child.on('close', code => {
+      clearTimeout(timer)
+      resolveRun({ ok: code === 0, code, stdout, stderr })
+    })
+  })
 }
 
 /** PNG 头 IHDR 里读宽高（大端，偏移 16/20） */
@@ -51,6 +73,23 @@ async function main() {
         `连不上 DevTools 的 CDP 端口 ${CDP} —— 微信开发者工具要以调试参数启动：` +
         `先 wechat-devtools-cli quit，再 wechat-devtools --remote-debugging-port=${CDP}`,
     })
+  }
+
+  // 1.5 指定了工程目录：用 CLI 打开/聚焦它（monorepo 多项目窗口时对准当前工作区）
+  if (PROJECT !== null) {
+    const cli = argv.cli ?? 'wechat-devtools-cli'
+    const abs = resolve(PROJECT)
+    const opened = await run(cli, ['open', '--project', abs], 60000)
+    if (!opened.ok) {
+      emit({
+        ok: true,
+        event: 'log',
+        msg: `cli open 未成功（继续抓当前模拟器）：${((opened.stderr || opened.stdout) || '').trim().slice(0, 100)}`,
+      })
+    } else {
+      // 等窗口与模拟器渲染起来
+      await new Promise(r => setTimeout(r, 5000))
+    }
   }
 
   // 2. 找模拟器渲染层（__pageframe__ = 模拟器画面；appservice 是逻辑层，别拿错）

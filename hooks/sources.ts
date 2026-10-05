@@ -72,7 +72,10 @@ export const projectLabel = (project: ProjectKind): string =>
 export const sourceStatus = (kind: SourceKind, det: Detection): { text: string; color: string } => {
   if (kind === 'h5') {
     return det.h5Script !== null
-      ? { text: `✅ 检测到脚本 ${det.h5Script}`, color: 'green' }
+      ? {
+          text: `✅ 检测到脚本 ${det.h5Script}${det.projectDir !== '.' ? `（${det.projectDir}）` : ''}`,
+          color: 'green',
+        }
       : { text: '⚠️ 未找到 dev:h5 类脚本，需先启动 H5 dev server', color: 'yellow' }
   }
   if (kind === 'devtools') {

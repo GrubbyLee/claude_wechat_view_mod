@@ -20,6 +20,10 @@ export type Detection = {
   devtoolsCli: string | null
   /** package.json 里能启动 H5 的脚本名；null = 未找到 */
   h5Script: string | null
+  /** 小程序工程所在目录（相对工作区根；monorepo 里是子目录，根即工程时为 '.'） */
+  projectDir: string
+  /** 方案 B 应在 DevTools 里打开的工程路径（编译产物目录）；null = 未找到 */
+  devtoolsProject: string | null
 }
 
 export type ActiveSource = {
