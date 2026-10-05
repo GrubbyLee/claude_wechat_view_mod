@@ -54,9 +54,10 @@ claude --plugin-dir /home/arabica/codes/claude_wechat_view
 | `defaultSource` | `auto` | `auto` / `h5` / `devtools` / `simulate` |
 | `h5Url` | `http://localhost:10086` | 方案 A 的 dev server 地址 |
 | `browser` | 空 | Chromium 路径（留空自动探测 PATH） |
+| `h5Live` | `off` | `on` = 方案 A 实时直播（CDP screencast，改代码即出帧） |
 | `devtoolsCli` | 空 | 开发者工具 CLI 路径（Linux 社区版需指定） |
 | `devtoolsPort` | `9420` | 自动化端口 |
-| `autoRefresh` | `on` | 编辑后自动刷新 |
+| `autoRefresh` | `on` | 编辑后自动刷新（直播模式下自动让位） |
 
 ## 架构
 
@@ -70,6 +71,7 @@ hooks/
   lib.ts                     参数拼装 / JSON 解析（纯函数）
 bridges/                     纯 Node 脚本，$.process.run 拉起，stdout 回一行 JSON
   h5-bridge.mjs              A：fetch 探活 → chromium --headless --screenshot
+  live-bridge.mjs            A 实时（h5Live on）：CDP screencast 常驻守护，流式吐帧
   devtools-bridge.mjs        B：automator.connect / launch → miniProgram.screenshot
   simulate-bridge.mjs        C：simulate + jsdom 渲染 WXML/WXSS → headless 浏览器截图
 tests/wxmp-preview.test.ts   UI 测试（claude plugin test）
@@ -98,6 +100,6 @@ Mod 与 Claude Code 本体拥有相同的机器权限。本插件只执行：读
 ## Roadmap
 
 - [x] 方案 C 渲染桥（miniprogram-simulate + jsdom + headless 浏览器）
-- [ ] 方案 A 升级为 CDP screencast（60fps）
+- [x] 方案 A 升级为 CDP screencast（h5Live 配置开启；screencast 变化才出帧，上限 15fps 可调）
 - [ ] 点击穿透：pane 里的指针事件 → automator 元素 rect 反查 → `element.tap()`
 - [ ] 常驻桥进程（session.start 拉起，`process.spawn` 流式收帧）

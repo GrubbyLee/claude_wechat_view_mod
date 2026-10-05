@@ -53,7 +53,10 @@ README.md                    使用文档；tsconfig.json 引擎铺类型后 tsc
     Page 页不支持，如实报错）
   - `node bridges/h5-bridge.mjs --url http://localhost:10086` → 无 dev server 时的引导文案
   - `node bridges/devtools-bridge.mjs --port 9420` → 连不上端口时的引导文案
-    （依赖 `npm install` 装在仓库根的 node_modules）
+  - `node bridges/live-bridge.mjs --url http://localhost:10086 --out /tmp/live.png`
+    → 直播守护（常驻，stdout 流式吐 started/frame 行；需 dev server 在跑，
+    Ctrl-C 带走 chromium）
+  （以上依赖 `npm install` 装在仓库根的 node_modules）
 
 ## 命令
 
@@ -80,9 +83,11 @@ claude --plugin-dir .             # 新会话里临时加载，输入 /wxmp 体�
   之下的世界，否则报 "no implementation for clock.now"。
 - 伪造进程/工具调用：`on('process.run', async () => ({ value: { exitCode, stdout, ... } }))`
   ——call 类事件回 **`{ value }`** 包装；给 `$.tool.call` 垫底用
-  `on('tool.call', async () => ({ result: { result, text } }))`——回 **`{ result }`**
-  （协议不同，报错信息会直说缺哪个）。`mock.clock(on)` 的返回值带 `advance(ms)`，
-  用来推进防抖定时器（tests 第三个测试是完整范例）。
+  `on('tool.call', async () => ({ result: { result, text } }))`——回 **`{ result }`**；
+  伪造 `$.process.spawn` 流用 async 生成器：yield 裸 `{ stream, text }` 块、
+  **return `{ value: { code, signal } }`**（协议不同，报错信息会直说缺哪个）。
+  `mock.clock(on)` 的返回值带 `advance(ms)`，用来推进防抖定时器（tests 第三、
+  四个测试是完整范例）。
 - 同一断言体循环跑多个 surface（有按钮交互的 `['terminal','desktop']`；
   纯存在性断言可加 `vscode`/`mobile`）。
 - press 之后立即断言即可——act 会等链、onPress 和未 await 的活儿都 settle；

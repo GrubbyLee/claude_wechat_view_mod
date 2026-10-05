@@ -10,6 +10,8 @@ export interface BridgeConfig {
   browser: string
   devtoolsCli: string
   devtoolsPort: string
+  /** 方案 A 的 CDP screencast 直播模式（userConfig h5Live） */
+  h5Live: boolean
 }
 
 export const str = (value: unknown, fallback: string): string =>
@@ -66,4 +68,15 @@ export const parseBridgeResult = (stdout: string): Record<string, unknown> => {
     }
   }
   return { ok: false, error: `bridge 输出无法解析：${stdout.trim().slice(0, 200)}` }
+}
+
+/** 直播守护的 stdout 单行 JSON；坏行返回 null（流式协议，坏行跳过不致命） */
+export const parseLiveLine = (line: string): Record<string, unknown> | null => {
+  if (!line.startsWith('{')) return null
+  try {
+    const parsed: unknown = JSON.parse(line)
+    return parsed !== null && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null
+  } catch {
+    return null
+  }
 }

@@ -12,15 +12,14 @@
 pane 里实时预览微信小程序 UI：打开时显示工作区检测 + 三个渲染方案的选择器卡片，
 选一个后变成像素帧预览，Claude 每编辑一次小程序文件自动防抖刷新。
 
-**现状**（2026-10-05 夜更新）：方案 A **端到端全链路通过**（含编辑→自动刷新，
-真会话实测 + 管线测试锁定）；期间修复 snap chromium 假成功坑、tool_input
-幽灵字段（自动刷新 v1 从未生效的根因）、重写 UI 文案、新增 `/wxmp refresh`。
-**方案 C 渲染桥已实现**（miniprogram-simulate + jsdom → headless 浏览器截图，
-组件化页面直渲、经典 Page() 自动转换兜底，像素级验证过）。三方案里只剩
-B 因本机无 DevTools 无法实测。validate / test 全绿。
+**现状**（2026-10-05 午更新）：方案 A **端到端全链路通过**（含编辑→自动刷新）
++ **实时直播模式落地**（Roadmap #3：CDP screencast 常驻守护，`h5Live` 配置
+开启，真会话验证「外部改文件→帧自动流入 pane」）；方案 C 渲染桥已实现
+（simulate + jsdom）。三方案里只剩 B 因本机无 DevTools 无法实测。
+validate / test 全绿（4 个测试）。
 
-**你接手后的第一件事**：按 §6 Roadmap 推进（下一个是 CDP screencast 60fps）；
-taro 测试项目与 C 冒烟夹具的用法见 §7。
+**你接手后的第一件事**：按 §6 Roadmap 推进（下一个是点击穿透，依赖 B 环境，
+或常驻进程的更多玩法）；taro 测试项目与 C 冒烟夹具的用法见 §7。
 
 ---
 
@@ -59,6 +58,7 @@ taro 测试项目与 C 冒烟夹具的用法见 §7。
 | 桥 C 冒烟 | ✅ | 渲染 tests/fixtures/native-demo 出真 PNG；经典 Page() 兜底与像素级验证均过（2026-10-05 夜） |
 | npm 依赖 | ✅ 已装 | 77 个包（miniprogram-automator 及其依赖树；若干 deprecation 警告，无害） |
 | 端到端实测 | ✅ 全链路（含自动刷新） | 2026-10-05 夜：PTY 驱动真交互会话，编辑 index.tsx 后 500ms 防抖 → 桥 → 新帧（6166→6514 字节） |
+| 实时直播（#3） | ✅ 真会话验证 | 2026-10-05 午：PTY 会话 h5Live on，外部 sed 改页面 → 帧文件 11:55:45→11:56:02 更新、pane 走到「第 2 帧」；管线有单测锁定 |
 
 **环境事实**（都在本机验证过）：
 
@@ -197,7 +197,15 @@ settings.json `pluginConfigs["wxmp-preview"]` 生效，改动热重载生效。
     用 `script -qec 'claude --plugin-dir …' /dev/null` 起 PTY 真会话，喂输入要
     **逐词慢打**（长串一次 printf 会被 TUI 刷帧吞掉、Enter 丢失），并
     `env -u CLAUDE_CODE_*` 剥子会话标记；判据看 /tmp 里桥 PNG 的时间戳与字节数
-    变化（内容变了字节数就变）。
+    变化（内容变了字节数就变）。另：`pgrep -f "live-bridge"` 会匹配到自己命令
+    的 bash 包装进程（假阳性），用 `live[-]bridge` 字符类防自匹配。
+12. **pluginConfigs 生效矩阵（--plugin-dir 插件）**：**项目级 settings 不生效**
+    （plain 名和 @inline 键都试过）；**全局 `~/.claude/settings.json` 的
+    `<name>@inline` 键生效**（/config 菜单自己存的位置）；**`-p` 无头会话不加载
+    pluginConfigs**——配置生效性验证必须用交互会话（PTY），别用 -p 白忙活。
+13. **call 类事件的钩子协议三兄弟**：`process.run` 回 `{ value }`；`tool.call`
+    垫底回 `{ result }`；`process.spawn` 流式钩子 yield 裸块、**return 也要
+    `{ value }` 包装**（报错信息会直说缺哪个）。
 
 ---
 
@@ -208,6 +216,10 @@ settings.json `pluginConfigs["wxmp-preview"]` 生效，改动热重载生效。
   生命周期/页面方法不执行），**含 usingComponents 的 Page 页面不支持**（相对路径
   会断，如实报错）；rpx 按 750 设计稿映射（2x 窗口 + 0.5 缩放），页面里混用的
   真实 px 也会被等比缩小。
+- **直播模式（h5Live）v1 约束**：同机同一时刻至多一个直播实例（帧文件与
+  pidfile 固定在 /tmp/wxmp-live-*）；帧上限默认 15fps（screencast 只在画面
+  变化时出帧）；15 分钟无帧守护自退；默认关（`/config` 或全局 settings 的
+  `wxmp-preview@inline` 键开启，注意 §4.12 的生效矩阵）。
 - 帧率是「预览级」：单次截图 0.5-3s/帧，不是实时视频流。
 - 像素帧走 kitty graphics 协议：kitty/Ghostty 最佳；不支持的终端显示 alt 文案；
   VS Code 里必须在**集成终端**跑 claude（终端 surface 才有 Image 元素）。
@@ -233,12 +245,13 @@ settings.json `pluginConfigs["wxmp-preview"]` 生效，改动热重载生效。
    实测），snap 坑与 tool_input 幽灵字段双修复，文案重写，管线测试锁定。
 2. ~~方案 C 渲染桥~~ ✅ 2026-10-05 夜：simulate + jsdom 渲染 → headless 浏览器
    2x/0.5 缩放截图；夹具 tests/fixtures/native-demo 可复现冒烟。
-3. **方案 A 升级 CDP screencast**：`Page.startScreencast` + WebSocket 常驻连接，
-   60fps；需要把桥改成长命子进程（参考 `$.process.spawn` 的流式文档和
-   "session.start 拉起、模块卸载即终止"的示例）。
+3. ~~方案 A 升级 CDP screencast~~ ✅ 2026-10-05：`h5Live` 配置开启；守护
+   `bridges/live-bridge.mjs`（CDP 裸写，零新依赖）；热重载孤儿靠 pidfile
+   兜底 + session.start 自动重连；真会话验证过「外部改文件→帧自动流入」。
 4. **点击穿透**：`Client` 元素 + `onPointer` 亚像素坐标 + automator 的
    `element.offset()/size()` 反查 rect → `element.tap()`。
-5. 常驻桥进程（同 3 的基础设施）。
+5. ~~常驻桥进程~~ ✅（随 #3 落地：live-bridge + `$.process.spawn` 流式消费，
+   生命周期 stopLive/return() + pidfile 孤儿回收 + 空闲自杀）。
 
 ---
 
@@ -269,6 +282,9 @@ Claude 编辑 `index.tsx` 后自动出新帧；管线另有自动化测试锁定
 
 方案 C 冒烟：`node bridges/simulate-bridge.mjs --project tests/fixtures/native-demo`
 （组件化页面直渲；经典 Page() 自动转换兜底；含 usingComponents 的 Page 页报错）。
+直播守护冒烟（需 dev server 在跑）：`node bridges/live-bridge.mjs --url
+http://localhost:10086 --out /tmp/live.png`，stdout 持续吐 started/frame 行，
+改 taro 页面文件看帧是否继续出；Ctrl-C 带走 chromium。
 
 ---
 

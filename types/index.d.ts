@@ -39,6 +39,8 @@ export type ActiveSource = {
   /** 最近一次失败的原因；null = 无 */
   lastError: string | null
   busy: boolean
+  /** CDP screencast 直播模式（方案 A 专属）：常驻守护在跑，帧自动流入 */
+  live: boolean
 }
 
 declare module 'claude-code' {

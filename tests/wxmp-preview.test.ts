@@ -90,3 +90,36 @@ test('an edit schedules a debounced refresh through the bridge', async ($, on) =
 
   await ui.unmount()
 })
+
+/**
+ * 直播模式（h5Live on）：选方案 A 起常驻守护（process.spawn），
+ * stdout 逐行驱动 started/帧/断流三事件；帧走 blit + 节流回写状态，
+ * 错误落 lastError 红字。守护流由 mock 生成器伪造。
+ */
+test('live mode streams frames from the daemon', { options: { h5Live: 'on' } }, async ($, on) => {
+  mock.clock(on)
+  mock.store(on)
+
+  let spawned = 0
+  on('process.spawn', async function* () {
+    spawned += 1
+    yield { stream: 'stdout', text: '{"ok":true,"event":"started","pid":1,"path":"/tmp/wxmp-live-frame.png"}\n' }
+    yield {
+      stream: 'stdout',
+      text: '{"ok":true,"event":"frame","frame":1,"path":"/tmp/wxmp-live-frame.png","width":750,"height":870}\n',
+    }
+    yield { stream: 'stdout', text: '{"ok":false,"error":"演示断流"}\n' }
+    return { value: { code: 0, signal: null } }
+  })
+
+  const ui = await $.ui.mount({ plugin: 'wxmp-preview', surface: 'terminal', ...PANE })
+
+  // 选用方案 A（h5Live on）→ 起守护而非排单帧刷新
+  await ui.press({ key: 'use-h5' })
+  expect(spawned).toBe(1)
+  // 帧已流入状态（第 1 帧）；守护断流 → lastError 红字
+  expect(await ui.find({ type: 'Text', text: /第 1 帧/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /演示断流/ })).toBeDefined()
+
+  await ui.unmount()
+})

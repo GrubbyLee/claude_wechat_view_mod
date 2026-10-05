@@ -42,6 +42,13 @@
       "options": ["on", "off"],
       "title": "自动刷新",
       "description": "Claude 编辑小程序相关文件后自动刷新预览"
+    },
+    "h5Live": {
+      "type": "string",
+      "default": "off",
+      "options": ["off", "on"],
+      "title": "方案 A 实时模式",
+      "description": "on = CDP screencast 常驻直播，改代码即出帧；off = 单帧截图模式"
     }
   }
 }

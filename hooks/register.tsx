@@ -1,5 +1,12 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register, RenderElement } from 'claude-code'
+import type {
+  EngineInterface,
+  HookStream,
+  ProcessSpawnChunk,
+  ProcessSpawnResult,
+  Register,
+  RenderElement,
+} from 'claude-code'
 
 import { SOURCES, fmtClock, projectLabel, sourceOf, sourceStatus } from './sources'
 import {
@@ -8,6 +15,7 @@ import {
   bridgeScript,
   isSourceKind,
   parseBridgeResult,
+  parseLiveLine,
   safeJson,
   str,
   type BridgeConfig,
@@ -48,11 +56,20 @@ const storeKey = (root: string): string => `wxmp:choice:${root}`
 let inFlight = false
 /** 挂起的防抖定时器 */
 let pendingRefresh: { cancel: () => void } | null = null
+/** 直播守护的帧文件与 PID 文件（v1 约束：同机同一时刻至多一个直播实例） */
+const LIVE_FRAME = '/tmp/wxmp-live-frame.png'
+const LIVE_PID = '/tmp/wxmp-live.pid'
+/** 直播守护的流句柄（热重载会丢，孤儿由 pidfile 兜底回收） */
+let liveStream: HookStream<ProcessSpawnChunk, ProcessSpawnResult> | null = null
+let liveBuf = ''
+let lastLiveStateAt = 0
 
 // ---------- 核心动作（全部顶层声明，接收 `$`） ----------
 
 /** 选用某个方案：写状态、记住选择、排一次首帧 */
 const choose = async ($: EngineInterface, kind: SourceKind, cfg: BridgeConfig): Promise<void> => {
+  await stopLive($)
+  const live = kind === 'h5' && cfg.h5Live
   const startedAt = await $.clock.now()
   const next: ActiveSource = {
     kind,
@@ -65,6 +82,7 @@ const choose = async ($: EngineInterface, kind: SourceKind, cfg: BridgeConfig): 
     frameHeight: null,
     lastError: null,
     busy: false,
+    live,
   }
   await update($, active, () => next)
   await update($, screen, () => 'preview')
@@ -77,7 +95,8 @@ const choose = async ($: EngineInterface, kind: SourceKind, cfg: BridgeConfig): 
       // 记不住就记不住，不影响本次选用
     }
   }
-  scheduleRefresh($, 600, cfg)
+  if (live) await startLive($, cfg)
+  else scheduleRefresh($, 600, cfg)
 }
 
 const redetect = async ($: EngineInterface, cfg: BridgeConfig): Promise<void> => {
@@ -95,6 +114,12 @@ const refresh = async ($: EngineInterface, cfg: BridgeConfig): Promise<void> => 
   try {
     const cur = await read($, active)
     if (cur === null) return
+
+    // 直播模式不走单帧链路：刷新 = 重连守护（页面卡住时的自救手段）
+    if (cur.kind === 'h5' && cur.live) {
+      await startLive($, cfg)
+      return
+    }
 
     await update($, active, a => (a === null ? a : { ...a, busy: true }))
     $.ui.status(`wxmp · ${cur.kind}：刷新中…`)
@@ -161,6 +186,121 @@ const scheduleRefresh = ($: EngineInterface, ms: number, cfg: BridgeConfig): voi
     pendingRefresh = null
     void refresh($, cfg)
   })
+}
+
+// ---------- 方案 A 实时直播（CDP screencast 常驻守护） ----------
+
+/** 停直播：正常停（流 return() = 引擎杀子进程）+ 孤儿兜底（pidfile 补刀） */
+const stopLive = async ($: EngineInterface): Promise<void> => {
+  const stream = liveStream
+  liveStream = null
+  liveBuf = ''
+  if (stream !== null) {
+    try {
+      await stream.return()
+    } catch {
+      // 已结束
+    }
+  }
+  try {
+    const pid = Number((await $.fs.read(LIVE_PID)).trim())
+    if (Number.isInteger(pid) && pid > 0) {
+      const alive = await $.process.run(['kill', '-0', String(pid)])
+      if (alive.exitCode === 0) await $.process.run(['kill', String(pid)])
+    }
+  } catch {
+    // pidfile 不存在 = 没有孤儿（守护正常退出时会删掉它）
+  }
+}
+
+/** 守护 stdout 每行一个事件/帧：blit 换帧 + 节流回写状态 */
+const onLiveLine = async ($: EngineInterface, line: string): Promise<void> => {
+  const msg = parseLiveLine(line)
+  if (msg === null) return
+  if (msg.ok === false) {
+    const error = typeof msg.error === 'string' ? msg.error : '直播守护异常'
+    await update($, active, a => (a === null ? a : { ...a, lastError: error, live: false }))
+    $.ui.status('wxmp · 直播：✗ 断开')
+    return
+  }
+  if (msg.event === 'started') {
+    await update($, active, a => (a === null ? a : { ...a, live: true, lastError: null, busy: false }))
+    $.ui.status('wxmp · 直播：✓ 已连接')
+    return
+  }
+  if (msg.event === 'frame' && typeof msg.path === 'string') {
+    const frame = typeof msg.frame === 'number' ? msg.frame : 0
+    try {
+      // 免渲染直接换帧；pane 未挂载时 deny 无妨，状态重绘兜底
+      await $.ui.blit({ requestId: PANE, key: 'frame', source: { file: msg.path, format: 'png', generation: frame } })
+    } catch {
+      // blit 只是加速路径，失败无所谓
+    }
+    const now = await $.clock.now()
+    if (now - lastLiveStateAt < 500) return
+    lastLiveStateAt = now
+    const width = typeof msg.width === 'number' ? msg.width : null
+    const height = typeof msg.height === 'number' ? msg.height : null
+    await update($, active, a =>
+      a === null
+        ? a
+        : {
+            ...a,
+            live: true,
+            frameSeq: frame,
+            framePath: msg.path,
+            frameAt: now,
+            frameWidth: width,
+            frameHeight: height,
+            refreshes: a.refreshes + 1,
+            lastError: null,
+          },
+    )
+  }
+}
+
+/** 消费守护 stdout 流；流结束（守护退出/被 return()）时收尾 */
+const pumpLive = async (
+  $: EngineInterface,
+  stream: HookStream<ProcessSpawnChunk, ProcessSpawnResult>,
+): Promise<void> => {
+  try {
+    for await (const chunk of stream) {
+      if (chunk.stream !== 'stdout') continue
+      liveBuf += chunk.text
+      let nl = liveBuf.indexOf('\n')
+      while (nl >= 0) {
+        const line = liveBuf.slice(0, nl).trim()
+        liveBuf = liveBuf.slice(nl + 1)
+        if (line !== '') await onLiveLine($, line)
+        nl = liveBuf.indexOf('\n')
+      }
+    }
+  } catch {
+    // 流被 return() 中止：正常停止路径
+  }
+  await update($, active, a => (a === null || !a.live ? a : { ...a, live: false })).catch(() => undefined)
+}
+
+/** 起直播守护（先停旧的，含孤儿补刀） */
+const startLive = async ($: EngineInterface, cfg: BridgeConfig): Promise<void> => {
+  await stopLive($)
+  // -Infinity 保证首帧必过节流（mock clock 从 0 起步时 0 会被 500ms 阈值吞掉）
+  lastLiveStateAt = Number.NEGATIVE_INFINITY
+  const argv = [
+    'node',
+    `${$.plugin.root}/bridges/live-bridge.mjs`,
+    '--url',
+    cfg.h5Url,
+    '--out',
+    LIVE_FRAME,
+    '--pidfile',
+    LIVE_PID,
+  ]
+  if (cfg.browser !== '') argv.push('--browser', cfg.browser)
+  $.ui.status('wxmp · 直播：连接中…')
+  liveStream = $.process.spawn({ argv })
+  void pumpLive($, liveStream)
 }
 
 /**
@@ -259,14 +399,16 @@ const detect = async ($: EngineInterface, cfg: BridgeConfig): Promise<Detection>
   return { project, evidence, recommend, devtoolsCli, h5Script }
 }
 
-/** Claude 编辑小程序相关文件后，防抖刷新当前方案 */
-const maybeSchedule = (
+/** Claude 编辑小程序相关文件后，防抖刷新当前方案（直播模式下跳过：HMR 自己出帧） */
+const maybeSchedule = async (
   $: EngineInterface,
   input: { file_path?: string } | undefined,
   enabled: boolean,
   cfg: BridgeConfig,
-): void => {
+): Promise<void> => {
   if (!enabled) return
+  const act = await read($, active)
+  if (act !== null && act.live) return
   const path = input?.file_path ?? ''
   if (path !== '' && MINI_PROGRAM_FILE.test(path)) scheduleRefresh($, 500, cfg)
 }
@@ -369,7 +511,8 @@ const drawPreview = async ($: EngineInterface, e: PaneRender, cfg: BridgeConfig)
       ? '未选择方案'
       : `${sourceOf(act.kind).title}` +
         (act.frameAt !== null ? ` · ${fmtClock(act.frameAt)} · 第 ${act.refreshes} 帧` : ' · 尚未刷新') +
-        (act.busy ? ' · 刷新中…' : '')
+        (act.busy ? ' · 刷新中…' : '') +
+        (act.live ? ' · 直播中' : '')
 
   let frame: RenderElement | null = null
   if (e.surface === 'terminal' && act !== null && act.framePath !== null) {
@@ -445,6 +588,7 @@ export const register: Register = (on, options) => {
     browser: str(config['browser'], ''),
     devtoolsCli: str(config['devtoolsCli'], ''),
     devtoolsPort: str(config['devtoolsPort'], '9420'),
+    h5Live: config['h5Live'] === 'on',
   }
   const autoRefresh = config['autoRefresh'] !== 'off'
   const defaultSource = str(config['defaultSource'], 'auto')
@@ -455,6 +599,22 @@ export const register: Register = (on, options) => {
       description: '微信小程序 UI 预览（右侧面板，可选渲染方案）',
       argumentHint: '[h5|devtools|simulate|auto|ask|refresh]',
     })
+    // 热重载/会话恢复：直播模式自动重连（$.state 跨重载存活；旧守护由 pidfile 兜底回收）
+    try {
+      const act = await read($, active)
+      if (act !== null && act.kind === 'h5' && act.live) await startLive($, cfg)
+    } catch {
+      // 恢复失败不影响会话启动
+    }
+    return next(e)
+  })
+
+  on('session.end', async ($, e, next) => {
+    try {
+      await stopLive($)
+    } catch {
+      // 收尾失败随它去，守护有自己的空闲自杀兜底
+    }
     return next(e)
   })
 
@@ -511,22 +671,22 @@ export const register: Register = (on, options) => {
   // 小程序文件，走到 maybeSchedule 里自然不匹配）
   on('tool.call', { tool: 'Edit' }, async ($, e, next) => {
     const ran = await next(e)
-    maybeSchedule($, e, autoRefresh, cfg)
+    await maybeSchedule($, e, autoRefresh, cfg)
     return ran
   })
   on('tool.call', { tool: 'Write' }, async ($, e, next) => {
     const ran = await next(e)
-    maybeSchedule($, e, autoRefresh, cfg)
+    await maybeSchedule($, e, autoRefresh, cfg)
     return ran
   })
   on('tool.call', { tool: 'MultiEdit' }, async ($, e, next) => {
     const ran = await next(e)
-    maybeSchedule($, e, autoRefresh, cfg)
+    await maybeSchedule($, e, autoRefresh, cfg)
     return ran
   })
   on('tool.call', { tool: 'NotebookEdit' }, async ($, e, next) => {
     const ran = await next(e)
-    maybeSchedule($, e, autoRefresh, cfg)
+    await maybeSchedule($, e, autoRefresh, cfg)
     return ran
   })
 
