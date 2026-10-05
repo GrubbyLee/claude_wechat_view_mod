@@ -10,7 +10,7 @@
 |---|---|---|---|
 | 帧率 | ~1-3s/帧 | ~0.5-3s/帧 | ~1-3s/帧 |
 | 保真 | 高（真 Chromium） | **100%（模拟器直出）** | 中（组件级，wx.* 模拟） |
-| 前提 | 项目能跑 `dev:h5`；本机有 Chromium | 微信开发者工具以 `--remote-debugging-port=9333` 启动并打开项目 | 无（`npm i` 即用） |
+| 前提 | 有 `dev:h5` 脚本（未运行会**自动拉起**）；本机有 Chromium | 微信开发者工具以 `--remote-debugging-port=9333` 启动并打开项目 | 无（`npm i` 即用） |
 | 适用 | Taro / uni-app / mpx 项目 | 原生小程序（或任何想要 100% 保真的场景） | 没有 DevTools 时的轻量方案 |
 
 自动检测逻辑：根目录 `package.json` 找 `@tarojs/*` / `@dcloudio/*` / `@mpxjs*`，或 `manifest.json+pages.json`（HBuilderX）；根目录不是小程序工程时**自动扫子目录**（monorepo：`apps/*`、`packages/*` 等）→ 有 `dev:h5` 推荐 A，纯 mp-weixin 工作流推荐 B，原生项目找到 DevTools CLI 推荐 B 否则 C。

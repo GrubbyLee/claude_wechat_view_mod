@@ -17,10 +17,10 @@
 
 import { spawn } from 'node:child_process'
 import { readFileSync, unlinkSync, writeFileSync } from 'node:fs'
-import { readFile, rename, writeFile } from 'node:fs/promises'
+import { open, readFile, rename, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 
 function parseArgs(list) {
   const out = {}
@@ -40,6 +40,13 @@ const IDLE_EXIT_MS = Number(argv['idle-exit-ms'] ?? 900000)
 const OUT = argv.out ?? join(tmpdir(), `wxmp-live-${process.pid}.png`)
 /** 插件用来孤儿回收的 PID 文件；退出时只在内容仍是自己 PID 时才删（防误删新守护的） */
 const PIDFILE = argv.pidfile ?? null
+/** dev server 未运行时自动拉起用的脚本与目录（detect 提供；null = 不具备自启条件） */
+const START_SCRIPT = argv['start-script'] ?? null
+const START_DIR = argv['start-dir'] ?? '.'
+
+/** 自动拉起的 dev server 的 pidfile 与日志（与 h5-bridge 共用，同机单实例） */
+const DEV_PID = '/tmp/wxmp-h5-dev.pid'
+const DEV_LOG = '/tmp/wxmp-h5-dev.log'
 
 const emit = msg => {
   process.stdout.write(JSON.stringify(msg) + '\n')
@@ -89,23 +96,70 @@ const alive = async u => {
   }
 }
 
+/** 常见 dev server 端口（uni·vite 5173 / webpack 8080·3000） */
+const CANDIDATE_PORTS = [5173, 8080, 3000]
+
+/**
+ * 确保 dev server 可用：探活 → 常见端口 → 自动拉起并等就绪（与 h5-bridge
+ * 同一套 pidfile，幂等）。返回可用 URL 或 null。
+ */
+async function ensureServer(cfgUrl) {
+  if (await alive(cfgUrl)) return cfgUrl
+  for (const port of CANDIDATE_PORTS) {
+    const alt = await alive(`http://localhost:${port}`)
+    if (alt !== null) return alt
+  }
+  if (START_SCRIPT === null) return null
+
+  let alreadyStarting = false
+  try {
+    const pid = Number(readFileSync(DEV_PID, 'utf8').trim())
+    if (Number.isInteger(pid) && pid > 0) {
+      alreadyStarting = (await run('kill', ['-0', String(pid)], 3000)).ok
+    }
+  } catch {
+    // 无 pidfile：走拉起
+  }
+  if (!alreadyStarting) {
+    const log = await open(DEV_LOG, 'a')
+    const child = spawn('npm', ['run', START_SCRIPT], {
+      cwd: resolve(START_DIR),
+      detached: true,
+      stdio: ['ignore', log, log],
+    })
+    child.unref()
+    // spawn 已 dup fd 给子进程，父侧句柄显式关掉（消 DEP0137）
+    await log.close()
+    await writeFile(DEV_PID, String(child.pid))
+  }
+
+  const candidates = [cfgUrl, ...CANDIDATE_PORTS.map(p => `http://localhost:${p}`)]
+  const deadline = Date.now() + 70000
+  while (Date.now() < deadline) {
+    for (const c of candidates) {
+      if (await alive(c)) return c
+    }
+    await new Promise(r => setTimeout(r, 1500))
+  }
+  return null
+}
+
 async function main() {
-  // 1. dev server 探活（与 A 截图模式同一防呆）；不通时探测常见端口兜一把
+  // 1. dev server：探活 → 常见端口兜底 → 自动拉起并等就绪
   let pageUrl = argv.url ?? 'http://localhost:10086'
-  if ((await alive(pageUrl)) === null) {
-    let alt = null
-    for (const port of [5173, 8080, 3000]) {
-      alt = await alive(`http://localhost:${port}`)
-      if (alt !== null) break
-    }
-    if (alt === null) {
-      return emit({
-        ok: false,
-        error: `H5 dev server 不可达：${pageUrl} —— 先在小程序工程目录启动（如 npm run dev:h5）。已试端口 10086/5173/8080/3000`,
-      })
-    }
-    emit({ ok: true, event: 'log', msg: `配置的 ${pageUrl} 不可达，自动改用 ${alt}` })
-    pageUrl = alt
+  const ready = await ensureServer(pageUrl)
+  if (ready === null) {
+    return emit({
+      ok: false,
+      error:
+        START_SCRIPT === null
+          ? `H5 dev server 不可达：${pageUrl} —— 先在小程序工程目录启动（如 npm run dev:h5）。已试端口 10086/5173/8080/3000`
+          : `dev server 自动启动后 70s 内未就绪（${START_DIR}: npm run ${START_SCRIPT}）—— 看 ${DEV_LOG} 排查；端口不在 10086/5173/8080/3000 之列时需在插件配置 h5Url 指定`,
+    })
+  }
+  if (ready !== pageUrl) {
+    emit({ ok: true, event: 'log', msg: `配置的 ${pageUrl} 不可达，改用 ${ready}` })
+    pageUrl = ready
   }
 
   // 2. 找浏览器

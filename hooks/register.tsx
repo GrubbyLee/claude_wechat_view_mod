@@ -128,6 +128,17 @@ const refresh = async ($: EngineInterface, cfg: BridgeConfig): Promise<void> => 
     $.ui.status(`wxmp · ${cur.kind}：刷新中…`)
 
     const argv = ['node', bridgeScript(cur.kind, $.plugin.root), ...bridgeArgs(cur.kind, cfg)]
+    if (cur.kind === 'h5') {
+      // dev server 没起时让桥自动拉起（npm run <脚本>，detached + pidfile，跨刷新幂等）
+      try {
+        const det = await read($, detection)
+        if (det !== null && det.h5Script !== null) {
+          argv.push('--start-script', det.h5Script, '--start-dir', det.projectDir)
+        }
+      } catch {
+        // 拿不到检测就不带启动参数（桥只报引导文案）
+      }
+    }
     if (cur.kind === 'simulate') {
       // simulate 桥按工程目录找 app.json；用 detect 扫到的（monorepo 子目录），
       // 拿不到就退回 '.'（桥相对 cwd 解析）
