@@ -127,11 +127,6 @@ const refresh = async ($: EngineInterface, cfg: BridgeConfig): Promise<void> => 
     $.ui.status(`wxmp · ${cur.kind}：刷新中…`)
 
     const argv = ['node', bridgeScript(cur.kind, $.plugin.root), ...bridgeArgs(cur.kind, cfg)]
-    if (cur.kind === 'devtools' && cfg.devtoolsCli === '') {
-      // 用户没配 CLI 时，把 detect 在 PATH 里找到的传给桥（connect 失败时的 launch 兜底）
-      const det = await read($, detection)
-      if (det !== null && det.devtoolsCli !== null) argv.push('--cli', det.devtoolsCli)
-    }
     if (cur.kind === 'simulate') {
       // simulate 桥按项目根找 app.json；显式传 --project，不赌 process.run 的 cwd
       try {
@@ -656,7 +651,7 @@ export const register: Register = (on, options) => {
     h5Url: str(config['h5Url'], 'http://localhost:10086'),
     browser: str(config['browser'], ''),
     devtoolsCli: str(config['devtoolsCli'], ''),
-    devtoolsPort: str(config['devtoolsPort'], '9420'),
+    devtoolsCdpPort: str(config['devtoolsCdpPort'], '9333'),
     h5Live: config['h5Live'] === 'on',
   }
   const autoRefresh = config['autoRefresh'] !== 'off'

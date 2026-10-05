@@ -30,11 +30,11 @@
       "title": "DevTools CLI 路径",
       "description": "微信开发者工具 CLI 路径（Linux 社区版需指定）"
     },
-    "devtoolsPort": {
+    "devtoolsCdpPort": {
       "type": "string",
-      "default": "9420",
-      "title": "DevTools 自动化端口",
-      "description": "微信开发者工具自动化端口（miniprogram-automator 连接用）"
+      "default": "9333",
+      "title": "DevTools 调试端口",
+      "description": "微信开发者工具需以 --remote-debugging-port=此值 启动（CDP 截图通道）"
     },
     "autoRefresh": {
       "type": "string",

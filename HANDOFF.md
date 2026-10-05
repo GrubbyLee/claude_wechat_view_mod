@@ -60,6 +60,7 @@ B 因本机无 DevTools 无法实测。validate / test 全绿（5 个测试）�
 | 端到端实测 | ✅ 全链路（含自动刷新） | 2026-10-05 夜：PTY 驱动真交互会话，编辑 index.tsx 后 500ms 防抖 → 桥 → 新帧（6166→6514 字节） |
 | 实时直播（#3） | ✅ 真会话验证 | 2026-10-05 午：PTY 会话 h5Live on，外部 sed 改页面 → 帧文件 11:55:45→11:56:02 更新、pane 走到「第 2 帧」；管线有单测锁定 |
 | 点击穿透（#4·A） | ✅ curl 实测 + 单测 | 2026-10-05 午后：守护 /click 打在按钮上 → 页面计数 0→1（帧 md5 变化）；pane→守护全链有单测（坐标换算精确断言）。**注意**：#3 当时的"帧更新"验证被白帧 bug 污染过，白帧修复（§4.14）后已重新像素级验证 |
+| 方案 B（CDP 直抓） | ✅ 冒烟 + 真画面 | 2026-10-05 下午：msojocs 移植版以 `--remote-debugging-port=9333` 启动后，桥 CDP attach `__pageframe__` webview 截图 390×844（12907 非白样本）。automator 截图指令在该移植版无响应（§4.16），截图通道已改走 CDP |
 
 **环境事实**（都在本机验证过）：
 
@@ -221,6 +222,15 @@ settings.json `pluginConfigs["wxmp-preview"]` 生效，改动热重载生效。
 15. **SGR 鼠标序列注入 PTY 未成功**（\x1b[<0;col;row;M/m）：未见
     「点击已转发」。终端→Client 指针路径未验证——引擎 kit 已验插件侧
     （ui.pointer 直喂 onPointer），就差真人在 Ghostty 里点一下。
+16. **msojocs 移植版自动化三部曲**：`automator.connect` ✓（页面栈可用）；
+    `App.captureScreenshot` 指令**无响应**（挂起，协议日志证实）——截图改走
+    CDP 直抓 `__pageframe__` webview。**三个端口概念别混**：服务端口
+    （设置里开的 HTTP 口，如 11007）≠ automator 自动化 WS 端口
+    （`cli auto --auto-port`，如 9420）≠ IDE 的 CDP 调试端口
+    （`--remote-debugging-port`，9333，B 方案用这个）。另有坑：automator
+    的 launch 拼的是旧版参数 `--auto <path>`，msojocs CLI 打印 DEPRECATED
+    且不生效，v2 拼法 `auto --project <path> --auto-port <port>` 才行；
+    IDE 刚 auto 完的窗口期内 connect 会无声暴毙，等几秒再连。
 
 ---
 

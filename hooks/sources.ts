@@ -33,11 +33,12 @@ export const SOURCES: readonly SourceInfo[] = [
     blurb: '截取模拟器画面，和平时看到的一样',
     fps: '约 0.5-3 秒/帧',
     fidelity: '100%（模拟器直出）',
-    requires: '本机可运行微信开发者工具',
+    requires: '微信开发者工具以调试参数启动',
     intro:
-      '连接微信开发者工具，直接截取模拟器画面——和你手动切到工具窗口看到的完全一致，' +
-      'wx.* 行为也与真机一致。首次使用需在工具里打开「设置 → 安全设置 → 服务端口」，' +
-      '并用工具打开本项目。Linux 无官方版，社区移植版（如 msojocs wechat-devtools-linux）可用。',
+      '直接截取微信开发者工具的模拟器画面——和你手动切到工具窗口看到的完全一致，' +
+      'wx.* 行为也与真机一致。**工具需以调试参数启动**（一次性）：' +
+      '`wechat-devtools-cli quit` 后 `wechat-devtools --remote-debugging-port=9333`，' +
+      '并在工具里打开本项目。Linux 用社区移植版（如 msojocs wechat-devtools-linux）。',
   },
   {
     kind: 'simulate',

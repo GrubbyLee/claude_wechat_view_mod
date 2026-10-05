@@ -9,7 +9,8 @@ export interface BridgeConfig {
   h5Url: string
   browser: string
   devtoolsCli: string
-  devtoolsPort: string
+  /** 方案 B：DevTools 的 CDP 调试端口（工具需 --remote-debugging-port=此值 启动） */
+  devtoolsCdpPort: string
   /** 方案 A 的 CDP screencast 直播模式（userConfig h5Live） */
   h5Live: boolean
 }
@@ -48,8 +49,7 @@ export const bridgeArgs = (kind: SourceKind, cfg: BridgeConfig): string[] => {
     return cfg.browser !== '' ? ['--url', cfg.h5Url, '--browser', cfg.browser] : ['--url', cfg.h5Url]
   }
   if (kind === 'devtools') {
-    const args = ['--port', cfg.devtoolsPort, '--wait', '1200']
-    return cfg.devtoolsCli !== '' ? [...args, '--cli', cfg.devtoolsCli] : args
+    return ['--cdp', cfg.devtoolsCdpPort]
   }
   return []
 }

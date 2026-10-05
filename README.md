@@ -10,7 +10,7 @@
 |---|---|---|---|
 | 帧率 | ~1-3s/帧 | ~0.5-3s/帧 | ~1-3s/帧 |
 | 保真 | 高（真 Chromium） | **100%（模拟器直出）** | 中（组件级，wx.* 模拟） |
-| 前提 | 项目能跑 `dev:h5`；本机有 Chromium | 本机可跑微信开发者工具；`npm i -D miniprogram-automator` | 无（`npm i` 即用） |
+| 前提 | 项目能跑 `dev:h5`；本机有 Chromium | 微信开发者工具以 `--remote-debugging-port=9333` 启动并打开项目 | 无（`npm i` 即用） |
 | 适用 | Taro / uni-app / mpx 项目 | 原生小程序（或任何想要 100% 保真的场景） | 没有 DevTools 时的轻量方案 |
 
 自动检测逻辑：`package.json` 里找 `@tarojs/*` / `@dcloudio/*` / `@mpxjs*` → 推荐 A；存在 `project.config.json` → 原生项目，找到 DevTools CLI 推荐 B，否则推荐 C。
@@ -56,7 +56,7 @@ claude --plugin-dir /home/arabica/codes/claude_wechat_view
 | `browser` | 空 | Chromium 路径（留空自动探测 PATH） |
 | `h5Live` | `off` | `on` = 方案 A 实时直播（CDP screencast，改代码即出帧，画面可点击） |
 | `devtoolsCli` | 空 | 开发者工具 CLI 路径（Linux 社区版需指定） |
-| `devtoolsPort` | `9420` | 自动化端口 |
+| `devtoolsCdpPort` | `9333` | 工具需以 `--remote-debugging-port=此值` 启动（CDP 截图通道） |
 | `autoRefresh` | `on` | 编辑后自动刷新（直播模式下自动让位） |
 
 ## 架构

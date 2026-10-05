@@ -28,7 +28,7 @@
 ## 布局
 
 ```
-.claude-plugin/plugin.json   清单 + userConfig（6 项，/config 菜单可见）
+.claude-plugin/plugin.json   清单 + userConfig（7 项，/config 菜单可见）
 types/index.d.ts             $.state 契约（PluginState 的 'wxmp-preview' 键）
 hooks/hooks.json             modules: ["./register.tsx"]（唯一入口）
 hooks/register.tsx           事件注册 + 全部接收 $ 的函数 + 两块屏的 JSX（选择器/预览屏）
@@ -53,7 +53,8 @@ README.md                    使用文档；tsconfig.json 引擎铺类型后 tsc
     演示页出真 PNG（组件化页面直渲；经典 Page() 自动转换；含 usingComponents 的
     Page 页不支持，如实报错）
   - `node bridges/h5-bridge.mjs --url http://localhost:10086` → 无 dev server 时的引导文案
-  - `node bridges/devtools-bridge.mjs --port 9420` → 连不上端口时的引导文案
+  - `node bridges/devtools-bridge.mjs` → 工具没带调试参数启动/没开项目时的引导文案
+    （出真画面需：`wechat-devtools --remote-debugging-port=9333` 并在工具里打开项目）
   - `node bridges/live-bridge.mjs --url http://localhost:10086 --out /tmp/live.png`
     → 直播守护（常驻，stdout 流式吐 started/frame 行；控制口随 started 事件
     上报端口，`curl -X POST :端口/click -d '{"x":375,"y":100}'` 穿透点击；
