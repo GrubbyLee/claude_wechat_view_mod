@@ -2,7 +2,7 @@
 
 本仓库是一个 **Claude Code function-hooks 插件（mod）**，名字 `wxmp-preview`：
 在 Claude Code 里 `/wxmp` 打开右侧 pane，实时预览微信小程序 UI。
-三个可切换的渲染方案（A·H5+Headless Chromium / B·微信开发者工具+Automator / C·simulate 占位），
+三个可切换的渲染方案（A·H5+Headless Chromium / B·微信开发者工具+Automator / C·simulate+jsdom 轻量渲染），
 打开时先显示工作区自动检测结果和方案选择器。
 
 项目细节、当前状态、待办见 `HANDOFF.md`（先读它）。
